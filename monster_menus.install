@@ -803,7 +803,8 @@ function monster_menus_schema() {
         'type' => 'int',
         'unsigned' => TRUE,
         'not null' => TRUE,
-        'disp-width' => '11'
+        'disp-width' => '11',
+		'default' => 0
       ),
       'name' => array(
         'type' => 'varchar',
@@ -852,7 +853,8 @@ function monster_menus_schema() {
       'sort_idx_dirty' => array(
         'type' => 'int',
         'size' => 'tiny',
-        'not null' => TRUE
+        'not null' => TRUE,
+		'default' => 0
       ),
       'hover' => array(
         'type' => 'varchar',

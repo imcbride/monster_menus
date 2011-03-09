@@ -1284,7 +1284,7 @@ function mm_content_update_parents($mmtid = NULL, $parents = NULL, $is_new = FAL
       'SELECT mmtid FROM {mm_tree}' :
       "SELECT t.mmtid FROM {mm_tree} t LEFT JOIN {mm_tree_parents} p ON p.mmtid = t.mmtid WHERE t.parent > 0 AND p.parent IS NULL");
 
-    while ($r = db_fetch_object($result))
+    foreach ($result as $r)
       mm_content_update_parents($r->mmtid, NULL);
 
     return;

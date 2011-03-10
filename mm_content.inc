@@ -1285,24 +1285,26 @@ function mm_content_update_parents($mmtid = NULL, $parents = NULL, $is_new = FAL
   if (is_null($parents)) $parents = mm_content_get_parents($mmtid, TRUE, FALSE);
 
   if (!count($parents)) {
-    db_query("DELETE FROM {mm_tree_parents} WHERE mmtid = %d", $mmtid);
+    db_query("DELETE FROM {mm_tree_parents} WHERE mmtid = :mmtid", array(':mmtid' => $mmtid));
     return;
   }
 
   // Minimize the time mm_tree_parents is inaccurate by inserting all parents at once
   $values = $placeholders = array();
   $dels = array($mmtid);
+  $i = 0;
   foreach ($parents as $depth => $parent) {
-    $values[] = $mmtid;
-    $values[] = $parent;
-    $values[] = $depth;
-    $placeholders[] = '(%d, %d, %d)';
+    $values[':mmtid_'.$i] = $mmtid;
+    $values[':parent_'.$i] = $parent;
+    $values[':depth_'.$i] = $depth;
+    $placeholders[] = '(:mmtid_'.$i.', :parent_'.$i.', :depth_'.$i.')';
     $dels[] = $parent;
+    $i++;
   }
 
   if (!$is_new) {
-    db_query("UPDATE {mm_tree} SET parent = %d WHERE mmtid = %d", $parents[count($parents) - 1], $mmtid);
-    db_query("DELETE FROM {mm_tree_parents} WHERE mmtid = %d AND parent NOT IN(" . db_placeholders($placeholders) . ')', $dels);
+    db_query("UPDATE {mm_tree} SET parent = :parent WHERE mmtid = :mmtid", array(':parent' => $parents[count($parents) - 1], ':mmtid' => $mmtid));
+    db_query("DELETE FROM {mm_tree_parents} WHERE mmtid = :mmtid AND parent NOT IN(:parents)", array(':mmtid' => $mmtid, ':parents' => $dels));
   }
   db_query('REPLACE INTO {mm_tree_parents} (mmtid, parent, depth) VALUES' . join(', ', $placeholders), $values);
 }

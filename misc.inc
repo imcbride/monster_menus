@@ -707,7 +707,7 @@ function mm_set_user_roles(&$account) {
 
   $added_role = FALSE;
   $q = mm_query(
-    'SELECT rid, name FROM (SELECT r2.rid, r.name, (COALESCE(SUM(v.uid = %d OR g.vgid = 0 AND g.uid = %d), 0) > 0) <> r2.negative AS ok FROM {mm_role2group} r2 INNER JOIN {role} r ON r.rid = r2.rid INNER JOIN {mm_group} g ON g.gid = r2.gid LEFT JOIN {mm_virtual_group} v ON g.vgid = v.vgid GROUP BY r2.rid) AS s WHERE s.ok', $account->uid, $account->uid);
+    'SELECT rid, name FROM (SELECT r2.rid, r.name, (COALESCE(SUM(v.uid = :uid_1 OR g.vgid = 0 AND g.uid = :uid_2), 0) > 0) <> r2.negative AS ok FROM {mm_role2group} r2 INNER JOIN {role} r ON r.rid = r2.rid INNER JOIN {mm_group} g ON g.gid = r2.gid LEFT JOIN {mm_virtual_group} v ON g.vgid = v.vgid GROUP BY r2.rid) AS s WHERE s.ok', array(':uid_1' => $account->uid,':uid_2' => $account->uid));
   while ($r = $q->next()) {
     if (!isset($account->roles[$r->rid])) {
       $account->roles[$r->rid] = $r->name;

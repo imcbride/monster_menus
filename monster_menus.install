@@ -234,6 +234,7 @@ function monster_menus_schema() {
         'type' => 'varchar',
         'length' => '1',
         'not null' => TRUE,
+        'default' => ''
       ),
     ),
     'primary key' => array('bid'),

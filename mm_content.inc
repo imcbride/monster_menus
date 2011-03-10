@@ -1173,12 +1173,12 @@ function mm_content_get($options, $return = array(), $limit = 0, $sort = FALSE) 
     $n = 0;
     foreach ($options['flags'] as $flag => $data) {
       $joins[] = "LEFT JOIN {mm_tree_flags} f$n ON f$n.mmtid = t.mmtid";
-      $wheres[] = "f$n.flag = '%s'";
-      $args[] = $flag;
+      $wheres[] = "f$n.flag = :flag_".$n."_flag";
+      $args[":flag_".$n."_flag"] = $flag;
       if (is_null($data)) $wheres[] = "f$n.data IS NULL";
       else {
-        $wheres[] = is_numeric($v2) ? "f$n.data = %d" : "f$n.data = '%s'";
-        $args[] = $data;
+        $wheres[] = "f$n.data = :flag_".$n."_data";
+        $args[":flag_".$n."_data"] = $data;
       }
       $n++;
     }
@@ -1186,30 +1186,22 @@ function mm_content_get($options, $return = array(), $limit = 0, $sort = FALSE) 
     unset($options['flags']);
   }
 
-  $string_fields = array('name', 'alias', 'theme', 'hover');
   foreach ($options as $k => $v) {
     if (!is_array($v) || $v) {
       if (is_array($v) && count($v) == 1) $v = $v[0];
 
-      $not_string = array_search($k, $string_fields) === FALSE;
       $k = strtolower($k);
       if (strchr($k, '.') === FALSE) $k = "t.$k";
+      
+      $placeholder = str_replace('.', '_', $k);
 
       if (is_array($v)) {
-        $vals = array();
-        foreach ($v as $v2) {
-          $vals[] = is_numeric($v2) && $not_string ? '%d' : "'%s'";
-          $args[] = $v2;
-        }
-        $wheres[] = "$k IN(" . join(', ', $vals) . ')';
+        $wheres[] = "$k IN(:$placeholder)";
       }
       else {
-        if (is_numeric($v) && $not_string)
-          $wheres[] = "$k = %d";
-        else
-          $wheres[] = "$k = '%s'";
-        $args[] = $v;
+      	$wheres[] = "$k = :".$placeholder;
       }
+      $args[":$placeholder"] = $v;
     }
   }
 
@@ -1246,10 +1238,10 @@ function mm_content_get($options, $return = array(), $limit = 0, $sort = FALSE) 
     }
 
     if ($limit) {
-      $q = mm_query_range($cache_mmtid, $query, $args, 0, $limit);
+      $q = mm_query_range($query, 0, $limit, $args, $cache_mmtid);
     }
     else {
-      $q = mm_query($cache_mmtid, $query, $args);
+      $q = mm_query($query, $args, $cache_mmtid);
     }
 
     while ($r = $q->next()) {

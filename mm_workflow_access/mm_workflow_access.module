@@ -1,5 +1,5 @@
 <?php
-// $Id: mm_workflow_access.module 4216 2010-06-25 18:36:37Z dan $
+// $Id: mm_workflow_access.module 5387 2011-05-03 21:09:51Z dan $
 
 /**
  * @file
@@ -331,7 +331,7 @@ function mm_workflow_access_nodeapi(&$node, $op, $a3 = NULL, $a4 = NULL) {
       break;
 
     case 'presave':
-      if (is_array($node->workflow_author)) {
+      if (isset($node->workflow_author) && is_array($node->workflow_author)) {
         // Convert workflow_author back to a single number
         $node->workflow_author = mm_ui_mmlist_key0($node->workflow_author);
       }
@@ -363,7 +363,7 @@ function mm_workflow_access_nodeapi(&$node, $op, $a3 = NULL, $a4 = NULL) {
  * Implementation of hook_link_alter().
  */
 function mm_workflow_access_link_alter(&$links, $node) {
-  if ($node->mm_workflow_access_read_denied) unset($links['comment_add']);
+  if (!empty($node->mm_workflow_access_read_denied)) unset($links['comment_add']);
 }
 
 /**

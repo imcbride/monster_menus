@@ -1,4 +1,4 @@
-/* $Id: monster_menus.css 5036 2011-02-15 20:29:26Z vquinn $ */
+/* $Id: monster_menus.css 5324 2011-04-15 20:05:33Z dan $ */
 /*
 ** MM browser in a table
 */
@@ -230,7 +230,9 @@ body.browser .browser-action {
   background-color: #efe;
 }
 
-#mmsr-status {
+#mmsr-status #mmsr-recalc {
+  float: left;
+  margin-right: 1em;
 }
 
 #mmsr-status input {
@@ -239,4 +241,9 @@ body.browser .browser-action {
 
 #mmsr-status-text {
   height: 13px;
+}
+
+#mmsr-diagnostic {
+  clear: right;
+  margin-top: 3em;
 }

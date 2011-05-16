@@ -1,14 +1,12 @@
 <?php
-// $Id: monster_menus.module 5016 2011-02-09 20:01:14Z dan $
+// $Id: monster_menus.module 5409 2011-05-11 19:54:14Z dan $
 
 /**
  * @file
  * Menus, menus, menus
  */
 
-define('MM_COMMENT_READABILITY_DEFAULT', 'comment readability default');  // permission name
-define('MM_NODE_INFO_NO_REORDER',        'no_reorder'); // don't allow this node type to be reordered
-
+require_once 'mm_constants.inc';
 require_once 'mm_content.inc';
 require_once 'mm_menu.inc';
 require_once 'misc.inc';
@@ -33,9 +31,9 @@ function monster_menus_help($path, $arg) {
       return t('<p></p>');
 
     case 'mm/%/contents/add':
-      $temp_arg = array('node', 'add');
+      $temp_arg = array('node', 'add', NULL, NULL, NULL);
       if ($arg[4]) {
-        $temp_arg[] = $arg[4];
+        $temp_arg[2] = $arg[4];
       }
       break;
   }
@@ -52,6 +50,7 @@ function monster_menus_help($path, $arg) {
   }
 
   if (isset($temp_arg)) {
+    $output = '';
     if (!isset($temp_path)) $temp_path = join('/', $temp_arg);
     foreach (module_list() as $name) {
       if (module_hook($name, 'help')) {
@@ -168,6 +167,13 @@ function monster_menus_menu() {
     'page arguments' => array(1),
     'access callback' => '_mm_menu_access_group_viewall',
     'access arguments' => array(1),
+    'type' => MENU_CALLBACK);
+  $items['mm/%mm_mmtid/%/render'] = array(
+    'title' => 'Render the node(s) on a page',
+    'page callback' => 'mm_render_nodes_on_page',
+    'page arguments' => array(1, 2),
+    'access callback' => 'mm_content_user_can',
+    'access arguments' => array(1, 'r'),
     'type' => MENU_CALLBACK);
 
   // Local tasks -- Contents tab
@@ -480,7 +486,9 @@ function monster_menus_menu_alter(&$callbacks) {
       'comment/edit',
       'comment/reply/%node',
       ) as $old_path) {
-    $callbacks["mm/%mm_mmtid/$old_path"]['file'] = $callbacks[$old_path]['file'];
+    if (isset($callbacks[$old_path]['file'])) {
+      $callbacks["mm/%mm_mmtid/$old_path"]['file'] = $callbacks[$old_path]['file'];
+    }
     $callbacks["mm/%mm_mmtid/$old_path"]['module'] = $callbacks[$old_path]['module'];
   }
 
@@ -493,7 +501,7 @@ function monster_menus_menu_alter(&$callbacks) {
       }
       else {
         foreach (array('load arguments', 'access arguments', 'page arguments', 'title arguments') as $type) {
-          if (is_array($callback[$type])) {
+          if (isset($callback[$type]) && is_array($callback[$type])) {
             foreach ($callback[$type] as $index => $val) {
               if (is_int($val)) {
                 $callback[$type][$index] = $val + 2;
@@ -502,7 +510,7 @@ function monster_menus_menu_alter(&$callbacks) {
           }
         }
 
-        if ($callback['page callback'] == 'node_page_view') {
+        if (isset($callback['page callback']) && $callback['page callback'] == 'node_page_view') {
           $callback['page callback'] = 'mm_node_page_view';
         }
 
@@ -553,7 +561,7 @@ function monster_menus_menu_alter(&$callbacks) {
     if (!isset($checked[$elems[0]])) $checked[$elems[0]] = db_result(db_query("SELECT COUNT(*) FROM {mm_tree} WHERE alias = '%s'", $elems[0]));
     $failed_check = $checked[$elems[0]] > 0;
 
-    if ($elems[1] == '%mm_mmtid' && count($elems) >= 3) {
+    if (count($elems) >= 3 && $elems[1] == '%mm_mmtid') {
       $reserved[$elems[2]] = TRUE;
       if (!isset($checked[$elems[2]])) $checked[$elems[2]] = db_result(db_query("SELECT COUNT(*) FROM {mm_tree} WHERE alias = '%s'", $elems[2]));
       if ($checked[$elems[2]] > 0) $failed_check = TRUE;
@@ -590,7 +598,7 @@ function monster_menus_link($type, $node, $teaser = FALSE) {
   $node_types = array_keys(node_get_types('names'));
   $links = array();
   _mm_menu_active_item();
-  if (isset($node) && isset($_mm_mmtid_of_node[$node->nid]) && array_search($node->type, $node_types) !== FALSE) {
+  if ($type == 'node' && isset($node) && isset($_mm_mmtid_of_node[$node->nid]) && array_search($node->type, $node_types) !== FALSE) {
     $defaults = array();
     if (!empty($_REQUEST['destination'])) {
       $defaults = array('query' => array('destination' => $_REQUEST['destination']));
@@ -634,7 +642,7 @@ function monster_menus_link($type, $node, $teaser = FALSE) {
  * Implementation of hook_link_alter().
  */
 function monster_menus_link_alter(&$links, &$node) {
-  if ($node->need_comment_alter && function_exists('comment_link')) {
+  if (isset($node->need_comment_alter) && $node->need_comment_alter && function_exists('comment_link')) {
     unset($links['comment_forbidden']);   // remove links already generated
     unset($links['comment_add']);
     $node->need_comment_alter = FALSE;    // prevent this code from being called twice per node
@@ -660,8 +668,7 @@ function monster_menus_boot() {
 
     // force the code in monster_menus_user('load') to run
     if (!module_exists('amherstprofile')) {
-      require_once './includes/common.inc';
-      module_load_include('module', 'user', 'user');
+      drupal_load('module', 'user');
       user_load($user->uid);
     }
   }
@@ -772,7 +779,7 @@ function custom_url_rewrite_inbound(&$result, $path, $path_language) {
 
   while ($joins) {
     $n = count($joins) - 1;
-    $new_mmtid = mm_query_result("SELECT t$n.mmtid FROM " . join(' INNER JOIN ', $joins) . ' WHERE ' . join(' AND ', $wheres));
+    $new_mmtid = mm_query_result("SELECT t$n.mmtid FROM " . join(' INNER JOIN ', $joins) . ' WHERE ' . join(' AND ', $wheres) .  " ORDER BY LENGTH(t$n.alias)");
     array_pop($joins);
     array_pop($wheres);
     $was_numeric = array_pop($numeric);
@@ -839,7 +846,7 @@ function custom_url_rewrite_outbound(&$path, &$options, $unused) {
     return;
   }
 
-  $cache_id = $original_path . ':' . $options['query'];
+  $cache_id = $original_path . ':' . (isset($options['query']) ? $options['query'] : '');
   if (isset($_mm_custom_url_rewrite_outbound_cache[$cache_id])) {
     $path = $_mm_custom_url_rewrite_outbound_cache[$cache_id];
     return;
@@ -847,7 +854,7 @@ function custom_url_rewrite_outbound(&$path, &$options, $unused) {
 
 //    debug_add("** from: $path");
   if (($arg0 = mm_parse_args($mmtids, $oarg_list, $this_mmtid, $path)) == 'mm') {
-    if ($mmtids[0] == mm_home_mmtid()) {
+    if ($mmtids && $mmtids[0] == mm_home_mmtid()) {
       if (count($mmtids) == 1 && count($oarg_list)) {
         $_mm_custom_url_rewrite_outbound_cache[$cache_id] = $path;
         return;
@@ -892,7 +899,7 @@ function custom_url_rewrite_outbound(&$path, &$options, $unused) {
     }
   }
   // Don't use $cache_id here, since $options['query'] may have changed
-  $_mm_custom_url_rewrite_outbound_cache[$original_path . ':' . $options['query']] = $path;
+  $_mm_custom_url_rewrite_outbound_cache[$original_path . ':' . (isset($options['query']) ? $options['query'] : '')] = $path;
 //    debug_add("** to: $path ");
 }
 
@@ -964,6 +971,7 @@ function monster_menus_block($op = 'list', $delta = 0, $edit = array()) {
           if ($b['show_node_contents']) {
             $prev = $tree[0]->level;
 
+            $block['content'] = '';
             foreach ($tree as $t)
               if (!$t->perms['IS_RECYCLED']) {
                 if ($t->level <= $prev)
@@ -971,51 +979,44 @@ function monster_menus_block($op = 'list', $delta = 0, $edit = array()) {
 
                 $mmtids[] = $t->mmtid;
 
-                $content .= _mm_render_pages($mmtids, array(), $err, TRUE, $b['allow_rss'], $delta);
+                $block['content'] .= _mm_render_pages($mmtids, array(), $err, TRUE, $b['allow_rss'], $delta);
                 $prev = $t->level;
               }
-
-            $block['content'] = $content;
           }
           else {
             $start = $b['title_is_cat'] ? 1 : 0;
 
-            if ($tree[$start]->parent == 1) {
-              $parents = array('mm');
-            }
-            else {
-              $parents = explode(',', $tree[$start]->parents);
+            $parents = array('mm');
+            if ($tree[$start]->parent != 1) {
               $parents[] = $tree[$start]->parent;
-              $parents[0] = 'mm';
             }
 
             $content = mm_content_render_tree($tree, $start, $path, $parents);
 
-            if ($content != '' || $b['title_is_cat'] && $can_edit) {
-              $block['content'] = "<ul class=\"menu\">$content</ul>";
+            if ($content['body'] != '' || $b['title_is_cat'] && $can_edit) {
+              $block['content'] = $content['prefix'] . $content['body'] . $content['suffix'];
             }
           }
 
           if ($b['title_is_cat'] || $b['show_node_contents']) {
             $edit_links = array();
-            if ($can_edit) $edit_links[] = l('Edit',
-                mm_content_get_mmtid_url($start) .
-                ($b['show_node_contents'] ? '' : '/settings/edit'));
+            if ($can_edit) {
+              $edit_links[] = l(t('Edit'), mm_content_get_mmtid_url($start) . ($b['show_node_contents'] ? '' : '/settings/edit'));
+            }
 
-            foreach ($starters as $other)
-              if (($perms = mm_content_user_can($other['mmtid'])) &&
-                  ($perms['w'] || $perms['a'] || $perms['u']))
-                $edit_links[] = l('Edit hidden',
-                    mm_content_get_mmtid_url($other['mmtid']) .
-                    ($b['show_node_contents'] ? '' : '/settings/edit'));
+            foreach ($starters as $other) {
+              if (($perms = mm_content_user_can($other['mmtid'])) && ($perms['w'] || $perms['a'] || $perms['u'])) {
+                $edit_links[] = l(t('Edit hidden'), mm_content_get_mmtid_url($other['mmtid']) . ($b['show_node_contents'] ? '' : '/settings/edit'));
+              }
+            }
 
             if (count($edit_links)) {
-              $block['content'] = '<div class="mm-block-links"> [' . join(' | ', $edit_links) . ']</div>' . $block['content'];
+              $block['content'] = '<div class="mm-block-links">' . join(' ', $edit_links) . '</div>' . $block['content'];
             }
           }
         }
 
-        $block['subject'] = isset($name) ? $name : $b['title'];
+        $block['subject'] = isset($name) ? $name : (isset($b) && isset($b['title']) ? $b['title'] : '');
       }
       else {
         $block = array('content' => '', 'subject' => '');
@@ -1106,8 +1107,8 @@ function monster_menus_user($op, &$edit, &$account, $category = NULL) {
     case 'load':
       if ($account->uid > 0) {
         global $user;
-        $home = mm_content_get(array('f.flag' => 'user_home', 'f.data' => $account->uid), MM_GET_FLAGS);
-        if (is_object($home[0])) {
+        $home = mm_content_get(array('flags' => array('user_home' => $account->uid)));
+        if (isset($home[0]) && is_object($home[0])) {
           $account->user_mmtid = $home[0]->mmtid;
           if ($account->uid == $user->uid) $user->user_mmtid = $home[0]->mmtid;
         }
@@ -1129,7 +1130,7 @@ function monster_menus_user($op, &$edit, &$account, $category = NULL) {
  */
 function monster_menus_nodeapi(&$node, $op, $a3, $a4) {
   $list = monster_menus_node_info();
-  if (isset($list[$node->type])) {
+  if (is_object($node) && isset($node->type) && isset($list[$node->type])) {
     $mm_nodefunc = $list[$node->type]['module'] . '_nodeapi';
     if (function_exists($mm_nodefunc)) $mm_nodefunc($node, $op, $a3, $a4);
   }
@@ -1202,8 +1203,8 @@ function monster_menus_nodeapi(&$node, $op, $a3, $a4) {
 
       if ($all_menus) _mm_ui_verify_userlist($node->owner, 'owner');
 
-      if (!$node->mm_skip_perms) {
-        if (is_array($node->groups_w))
+      if (!isset($node->mm_skip_perms) || !$node->mm_skip_perms) {
+        if (isset($node->groups_w) && is_array($node->groups_w))
           foreach ($node->groups_w as $gid => $name) {
             if ($gid && !mm_content_user_can($gid, 'u'))
               form_set_error('groups_w',
@@ -1211,7 +1212,7 @@ function monster_menus_nodeapi(&$node, $op, $a3, $a4) {
                   array('%grp' => $name)));
           }
 
-        if (is_array($node->users_w))
+        if (isset($node->users_w) && is_array($node->users_w))
           _mm_ui_verify_userlist($node->users_w, 'users_w');
       }
 
@@ -1265,17 +1266,34 @@ function monster_menus_nodeapi(&$node, $op, $a3, $a4) {
 
       mm_content_set_node_perms($node);
 
+      if (empty($node->show_node_info))
+        $node->show_node_info = FALSE;
+      if (empty($node->comments_readable))
+        $node->comments_readable = FALSE;
+
       db_query("UPDATE {mm_node_info} SET show_node_info = %d, comments_readable = '%s' WHERE nid = %d", $node->show_node_info, $node->comments_readable, $node->nid);
       if (!db_affected_rows()) @db_query("INSERT INTO {mm_node_info} (nid, show_node_info, comments_readable) VALUES(%d, %d, '%s')", $node->nid, $node->show_node_info, $node->comments_readable);
 
-      if (!empty($node->publish_on)) {
+      if (empty($node->publish_on)) {
+        $node->publish_on = 0;
+      }
+      else {
         $node->publish_on = strtotime($node->publish_on);
         if ($node->publish_on <= 0) $node->publish_on = 0;
       }
-      if (!empty($node->unpublish_on)) {
+
+      if (empty($node->unpublish_on)) {
+        $node->unpublish_on = 0;
+      }
+      else {
         $node->unpublish_on = strtotime($node->unpublish_on);
         if ($node->unpublish_on <= 0) $node->unpublish_on = 0;
       }
+
+      if (empty($node->set_change_date)) {
+        $node->set_change_date = 0;
+      }
+
       if ($node->publish_on || $node->unpublish_on || $node->set_change_date) {
         db_query('UPDATE {mm_node_schedule} SET publish_on = %d, unpublish_on = %d, set_change_date = %d WHERE nid=%d', $node->publish_on, $node->unpublish_on, $node->set_change_date, $node->nid);
         if (!db_affected_rows()) @db_query('INSERT INTO {mm_node_schedule} (nid, publish_on, unpublish_on, set_change_date) VALUES(%d, %d, %d, %d)', $node->nid, $node->publish_on, $node->unpublish_on, $node->set_change_date);
@@ -1300,7 +1318,7 @@ function monster_menus_nodeapi(&$node, $op, $a3, $a4) {
         mm_node_load_fail($node, $a3);
       }
       else {
-        if ($a3 && $node->readmore) {
+        if ($a3 && !empty($node->readmore)) {
           $node->content['mm_readmore'] = array('#weight' => 1000, '#value' => '<div class="read-more">' .
             l(t('Read more &raquo;'), "node/$node->nid", array('html' => TRUE, 'attributes' => array('title' => t('Read the rest of this post')))) . '</div>');
           unset($node->readmore);

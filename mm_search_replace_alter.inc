@@ -1,5 +1,5 @@
 <?php
-// $Id: mm_search_replace_alter.inc 4592 2010-09-23 15:51:16Z dan $
+// $Id: mm_search_replace_alter.inc 5324 2011-04-15 20:05:33Z dan $
 
 /**
  * @file
@@ -125,6 +125,7 @@ $_mmsr_query_defaults = array(
 function mm_search_replace_alter_node(&$form) {
   global $_mmsr_query_defaults;
 
+  $date_desc = '';
   if (!module_exists('date_popup')) {
     $date_desc = t('Format: %time', array('%time' => format_date(time(), 'custom', 'Y-m-d H:i:s')));
     defined('DATE_FORMAT_DATETIME') or define('DATE_FORMAT_DATETIME', "Y-m-d H:i:s");
@@ -134,6 +135,12 @@ function mm_search_replace_alter_node(&$form) {
     '#type' => 'select',
     '#options' => taxonomy_form_all(TRUE)
   );
+
+  _mm_ui_form_array_merge($form, 'settings_perms', array(
+    '#type' => 'fieldset',
+    '#title' => t('Who can edit or delete this content'),
+  ));
+  _mm_ui_userlist_setup(array(), $form['settings_perms'], 'owner', t('Owner:'), TRUE, '', '');
 
   //---------------- Begin alterations for node form elements ----------------
   $alter = array(
@@ -145,10 +152,10 @@ function mm_search_replace_alter_node(&$form) {
       'contain' => '= ${ival}',
       'do not contain' => 'IS NULL OR (SELECT COUNT(tid) FROM {term_node} t WHERE t.nid = term_node.nid AND t.tid = ${ival}) = 0')),
     //-------------------------------------------------------------------
-    array(&$form['mm_appearance']['date'], '#mm-search', t('the creation date/time')),
-    array(&$form['mm_appearance']['date'], '#mm-search-opt', $_mmsr_query_defaults['date']),
-    array(&$form['mm_appearance']['date'], '#mm-search-description', $date_desc),
-    array(&$form['mm_appearance']['date'], '#date_format', DATE_FORMAT_DATETIME),
+    array(&$form['mm_appearance']['author']['date'], '#mm-search', t('the creation date/time')),
+    array(&$form['mm_appearance']['author']['date'], '#mm-search-opt', $_mmsr_query_defaults['date']),
+    array(&$form['mm_appearance']['author']['date'], '#mm-search-description', $date_desc),
+    array(&$form['mm_appearance']['author']['date'], '#date_format', DATE_FORMAT_DATETIME),
     //-------------------------------------------------------------------
     array(&$form['mm_appearance']['changed'], '#mm-search', t('the modification date/time')),
     array(&$form['mm_appearance']['changed'], '#mm-search-opt', $_mmsr_query_defaults['date']),
@@ -219,14 +226,39 @@ function mm_search_replace_alter_mm(&$form, $is_group) {
     t('does not end with') => 's',
     t('does not match the regular expression') => 's');
   $waur = array(
-    '[write]' => 'x',
-    '[add]' => 'x',
-    '[use]' => 'x',
-    '[read]' => 'x',
+    '[w]' => 'x',
+    '[a]' => 'x',
+    '[u]' => 'x',
+    '[r]' => 'x',
   );
-  if ($is_group) unset($waur['[use]']);
+  if ($is_group) unset($waur['[u]']);
 
-  $form['settings_perms2'] = array('#type' => 'fieldset', '#title' => $form['settings_perms']['#title']);
+  foreach ($form['settings_perms']['table']['everyone']['#value']['types'] as $short => $list) {
+    $form['settings_perms'][$short] = array(
+      '#type' => 'fieldset',
+      '#title' => str_replace('&#8203;', '', $list[0]),
+    );
+
+    // don't allow non-admins to permit everyone for write
+    $form['settings_perms'][$short]["groups_$short"] = array(
+      '#type' => 'mm_grouplist',
+      '#mm_list_popup_start' => mm_content_groups_mmtid(),
+      '#mm_list_other_name' => "others_$short",
+    );
+
+    _mm_ui_userlist_setup(array(), $form['settings_perms'][$short], "users_$short", t('Individual users:'), FALSE, '', "others_$short");
+
+    $form['settings_perms'][$short]["others_$short"] = array(
+      '#type' => 'checkbox',
+      '#title' => t('Everyone'),
+      '#attributes' => array('class' => 'settings-perms-others'),
+    );
+  }
+
+  $form['settings_perms2'] = array(
+    '#type' => 'fieldset',
+    '#title' => $form['settings_perms']['#title'],
+  );
   _mm_ui_userlist_setup(array(''), $form['settings_perms2'], 'user', t('User:'), TRUE, '');
 
   $form['flags']['flags_value'] = array(
@@ -369,35 +401,40 @@ function mm_search_replace_alter_mm(&$form, $is_group) {
     array(-1, &$form['settings_perms'], '#mm-search-weight', -1),
     array(-1, &$form['settings_perms'], 'owner', NULL),
     array(-1, &$form['settings_perms'], 'owner-choose', NULL),
-    array(-1, &$form['settings_perms'], 'propagate', NULL),
     //-------------------------------------------------------------------
     array(-1, &$form['settings_perms2']['user-choose'], '#title', ''),
     array(-1, &$form['settings_perms2'], '#mm-search', t('the user')),
     array(-1, &$form['settings_perms2'], '#mm-search-opt', array(
+      t('is the owner', $x) => '={
+        list($a) = _mm_search_split_mmlist("${user}");
+        return $a[0] == "" ? "FALSE" : "{mm_tree}.uid = $a[0]";}',
       t('can delete the @thing or change its settings', $x) => '={
         list($a) = _mm_search_split_mmlist("${user}");
-        return $a[0] ? "\'w\' IN({mm_tree}.default_mode) OR (SELECT COUNT(*) > 0 FROM {mm_tree_access} LEFT JOIN {mm_group} ON {mm_group}.gid = {mm_tree_access}.gid WHERE {mm_tree_access}.mmtid = {mm_tree}.mmtid AND {mm_tree_access}.mode=\'w\' AND {mm_group}.uid=$a[0])" : "FALSE";}',
+        return $a[0] == "" ? "FALSE" : ($a[0] ? "\'w\' IN({mm_tree}.default_mode) OR (SELECT COUNT(*) > 0 FROM {mm_tree_access} LEFT JOIN {mm_group} ON {mm_group}.gid = {mm_tree_access}.gid WHERE {mm_tree_access}.mmtid = {mm_tree}.mmtid AND {mm_tree_access}.mode=\'w\' AND {mm_group}.uid=$a[0])" : "\'w\' IN({mm_tree}.default_mode)");}',
       t('can append @subthings to the @thing', $x) => '={
         list($a) = _mm_search_split_mmlist("${user}");
-        return $a[0] ? "\'a\' IN({mm_tree}.default_mode) OR (SELECT COUNT(*) > 0 FROM {mm_tree_access} LEFT JOIN {mm_group} ON {mm_group}.gid = {mm_tree_access}.gid WHERE {mm_tree_access}.mmtid = {mm_tree}.mmtid AND {mm_tree_access}.mode=\'a\' AND {mm_group}.uid=$a[0])" : "FALSE";}',
+        return $a[0] == "" ? "FALSE" : ($a[0] ? "\'a\' IN({mm_tree}.default_mode) OR (SELECT COUNT(*) > 0 FROM {mm_tree_access} LEFT JOIN {mm_group} ON {mm_group}.gid = {mm_tree_access}.gid WHERE {mm_tree_access}.mmtid = {mm_tree}.mmtid AND {mm_tree_access}.mode=\'a\' AND {mm_group}.uid=$a[0])" : "\'a\' IN({mm_tree}.default_mode)");}',
       t('can add content to the page') => '={
         list($a) = _mm_search_split_mmlist("${user}");
-        return $a[0] ? "\'u\' IN({mm_tree}.default_mode) OR (SELECT COUNT(*) > 0 FROM {mm_tree_access} LEFT JOIN {mm_group} ON {mm_group}.gid = {mm_tree_access}.gid WHERE {mm_tree_access}.mmtid = {mm_tree}.mmtid AND {mm_tree_access}.mode=\'u\' AND {mm_group}.uid=$a[0])" : "FALSE";}',
+        return $a[0] == "" ? "FALSE" : ($a[0] ? "\'u\' IN({mm_tree}.default_mode) OR (SELECT COUNT(*) > 0 FROM {mm_tree_access} LEFT JOIN {mm_group} ON {mm_group}.gid = {mm_tree_access}.gid WHERE {mm_tree_access}.mmtid = {mm_tree}.mmtid AND {mm_tree_access}.mode=\'u\' AND {mm_group}.uid=$a[0])" : "\'u\' IN({mm_tree}.default_mode)");}',
       ($is_group ? t('can see the members of the group') : t('can read the page')) => '={
         list($a) = _mm_search_split_mmlist("${user}");
-        return $a[0] ? "\'r\' IN({mm_tree}.default_mode) OR (SELECT COUNT(*) > 0 FROM {mm_tree_access} LEFT JOIN {mm_group} ON {mm_group}.gid = {mm_tree_access}.gid WHERE {mm_tree_access}.mmtid = {mm_tree}.mmtid AND {mm_tree_access}.mode=\'r\' AND {mm_group}.uid=$a[0])" : "FALSE";}',
+        return $a[0] == "" ? "FALSE" : ($a[0] ? "\'r\' IN({mm_tree}.default_mode) OR (SELECT COUNT(*) > 0 FROM {mm_tree_access} LEFT JOIN {mm_group} ON {mm_group}.gid = {mm_tree_access}.gid WHERE {mm_tree_access}.mmtid = {mm_tree}.mmtid AND {mm_tree_access}.mode=\'r\' AND {mm_group}.uid=$a[0])" : "\'r\' IN({mm_tree}.default_mode)");}',
+      t('is not the owner', $x) => '={
+        list($a) = _mm_search_split_mmlist("${user}");
+        return $a[0] == "" ? "TRUE" : "{mm_tree}.uid <> $a[0]";}',
       t('cannot delete the @thing or change its settings', $x) => '={
         list($a) = _mm_search_split_mmlist("${user}");
-        return $a[0] ? "\'w\' NOT IN({mm_tree}.default_mode) AND (SELECT COUNT(*) = 0 FROM {mm_tree_access} LEFT JOIN {mm_group} ON {mm_group}.gid = {mm_tree_access}.gid WHERE {mm_tree_access}.mmtid = {mm_tree}.mmtid AND {mm_tree_access}.mode=\'w\' AND {mm_group}.uid=$a[0])" : "FALSE";}',
+        return $a[0] == "" ? "FALSE" : ($a[0] ? "\'w\' NOT IN({mm_tree}.default_mode) AND (SELECT COUNT(*) = 0 FROM {mm_tree_access} LEFT JOIN {mm_group} ON {mm_group}.gid = {mm_tree_access}.gid WHERE {mm_tree_access}.mmtid = {mm_tree}.mmtid AND {mm_tree_access}.mode=\'w\' AND {mm_group}.uid=$a[0])" : "\'w\' NOT IN({mm_tree}.default_mode)");}',
       t('cannot append @subthings to the @thing', $x) => '={
         list($a) = _mm_search_split_mmlist("${user}");
-        return $a[0] ? "\'a\' NOT IN({mm_tree}.default_mode) AND (SELECT COUNT(*) = 0 FROM {mm_tree_access} LEFT JOIN {mm_group} ON {mm_group}.gid = {mm_tree_access}.gid WHERE {mm_tree_access}.mmtid = {mm_tree}.mmtid AND {mm_tree_access}.mode=\'a\' AND {mm_group}.uid=$a[0])" : "FALSE";}',
+        return $a[0] == "" ? "FALSE" : ($a[0] ? "\'a\' NOT IN({mm_tree}.default_mode) AND (SELECT COUNT(*) = 0 FROM {mm_tree_access} LEFT JOIN {mm_group} ON {mm_group}.gid = {mm_tree_access}.gid WHERE {mm_tree_access}.mmtid = {mm_tree}.mmtid AND {mm_tree_access}.mode=\'a\' AND {mm_group}.uid=$a[0])" : "\'a\' NOT IN({mm_tree}.default_mode)");}',
       t('cannot add content to the page') => '={
         list($a) = _mm_search_split_mmlist("${user}");
-        return $a[0] ? "\'u\' NOT IN({mm_tree}.default_mode) AND (SELECT COUNT(*) = 0 FROM {mm_tree_access} LEFT JOIN {mm_group} ON {mm_group}.gid = {mm_tree_access}.gid WHERE {mm_tree_access}.mmtid = {mm_tree}.mmtid AND {mm_tree_access}.mode=\'u\' AND {mm_group}.uid=$a[0])" : "FALSE";}',
+        return $a[0] == "" ? "FALSE" : ($a[0] ? "\'u\' NOT IN({mm_tree}.default_mode) AND (SELECT COUNT(*) = 0 FROM {mm_tree_access} LEFT JOIN {mm_group} ON {mm_group}.gid = {mm_tree_access}.gid WHERE {mm_tree_access}.mmtid = {mm_tree}.mmtid AND {mm_tree_access}.mode=\'u\' AND {mm_group}.uid=$a[0])" : "\'u\' NOT IN({mm_tree}.default_mode)");}',
       ($is_group ? t('cannot see the members of the group') : t('cannot read the page')) => '={
         list($a) = _mm_search_split_mmlist("${user}");
-        return $a[0] ? "\'r\' NOT IN({mm_tree}.default_mode) AND (SELECT COUNT(*) = 0 FROM {mm_tree_access} LEFT JOIN {mm_group} ON {mm_group}.gid = {mm_tree_access}.gid WHERE {mm_tree_access}.mmtid = {mm_tree}.mmtid AND {mm_tree_access}.mode=\'r\' AND {mm_group}.uid=$a[0])" : "FALSE";}'
+        return $a[0] == "" ? "FALSE" : ($a[0] ? "\'r\' NOT IN({mm_tree}.default_mode) AND (SELECT COUNT(*) = 0 FROM {mm_tree_access} LEFT JOIN {mm_group} ON {mm_group}.gid = {mm_tree_access}.gid WHERE {mm_tree_access}.mmtid = {mm_tree}.mmtid AND {mm_tree_access}.mode=\'r\' AND {mm_group}.uid=$a[0])" : "\'r\' NOT IN({mm_tree}.default_mode)");}'
       )),
     array(-1, &$form['settings_perms2'], '#mm-search-query', array(
       'settings_perms2' => '={return $query_segments["settings_perms2"][intval(${search-settings_perms2-0})]}')),
@@ -530,7 +567,7 @@ function mm_search_replace_alter_mm(&$form, $is_group) {
         'is more than' => '>',
         'is less than' => '<',
         'is not' => '<>'),
-      $form['settings_archive']['inner']['main_nodes']['#options'],
+      isset($form['settings_archive']['inner']['main_nodes']['#options']) ? $form['settings_archive']['inner']['main_nodes']['#options'] : array(),
       )),
     array(0,  &$form['settings_archive']['archive'], '#mm-search-query', array(
       'archive' => '={if (!intval(${search-archive-0})) return "{mm_archive}.main_mmtid IS NULL";

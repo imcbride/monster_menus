@@ -1,5 +1,5 @@
 <?php
-// $Id: mm_ui_content_edit.inc 5017 2011-02-09 20:40:29Z dan $
+// $Id: mm_ui_content_edit.inc 5387 2011-05-03 21:09:51Z dan $
 
 /**
  * @file
@@ -18,7 +18,7 @@ function mm_ui_content_edit(&$form_state, $item, $mmtid, $is_group, $is_new, $is
     '#value' => $mmtid
   );
 
-  $owner = isset($form_state['post']['owner']) ? $form_state['post']['owner'] : $item->uid;
+  $owner = isset($form_state['post']['owner']) ? $form_state['post']['owner'] : (isset($item->uid) ? $item->uid : '');
 
   if (!$is_new && user_access('see create/modify times')) {
     // this code correctly handles legacy tree nodes without creation dates/users
@@ -34,11 +34,11 @@ function mm_ui_content_edit(&$form_state, $item, $mmtid, $is_group, $is_new, $is
 
     if (isset($x['@ctime'])) $msg = t('This @thing was created by !cuser on @ctime.', $x);
 
-    if (isset($x['@mtime']) && $x['@mtime'] != $x['@ctime'])
-      if ($msg) $msg .= ' ' . t('It was last modified by !muser on @mtime.', $x);
+    if (isset($x['@mtime']) && (!isset($x['@ctime']) || $x['@mtime'] != $x['@ctime']))
+      if (!empty($msg)) $msg .= ' ' . t('It was last modified by !muser on @mtime.', $x);
       else $msg = t('This @thing was last modified by !muser on @mtime.', $x);
 
-    if ($msg) {
+    if (isset($msg) && $msg) {
       $form['moddate'] = array(
         '#type' => 'markup',
         '#value' => $msg
@@ -85,7 +85,7 @@ function mm_ui_content_edit(&$form_state, $item, $mmtid, $is_group, $is_new, $is
     $form['settings_perms']['solver_form']['#prefix'] = '<div style="display: none" id="solver-form">';
     $form['settings_perms']['solver_form']['#suffix'] = '<div id="mm-solver-table"></div></div>';
     $title = t('Solve permissions issues');
-    $form['settings_perms']['#description'] = '<div id="mm-solver-link">' . l($title, "mm/$mmtid/settings/solver", array('fragment' => 'TB_inline?height=400&width=500&inlineId=solver-form', 'attributes' => array('class' => 'thickbox', 'title' => $title))) . '</div>' . $form['settings_perms']['#description'];
+    $form['settings_perms']['#description'] = '<div id="mm-solver-link">' . l($title, "mm/$mmtid/settings/solver", array('fragment' => 'TB_inline?height=400&width=500&inlineId=solver-form', 'attributes' => array('class' => 'thickbox', 'title' => $title))) . '</div>' . (isset($form['settings_perms']['#description']) ? $form['settings_perms']['#description'] : '');
   }
 
   $types = array(
@@ -120,13 +120,14 @@ function mm_ui_content_edit(&$form_state, $item, $mmtid, $is_group, $is_new, $is
 
   $form['settings_perms']['table']['#theme'] = 'mm_ui_permissions';
 
-  if (!isset($form_state['post']['group_r_everyone'])) {
+  $default_modes = array();
+  if (!isset($form_state['post']['group_r_everyone']) && isset($item->default_mode)) {
     $default_modes = explode(',', $item->default_mode);
   }
   $x['!class'] = t('everyone');
   $checks = array();
   foreach (array_keys($types) as $type) {
-    $checks[] = $type == 'w' && !$all_menus ? NULL : in_array($type, $default_modes);
+    $checks[] = $type == 'w' && !$all_menus ? NULL : count($default_modes) > 0 && in_array($type, $default_modes);
     $checks[] = FALSE;
   }
   $form['settings_perms']['table']['everyone'] = array(
@@ -139,27 +140,27 @@ function mm_ui_content_edit(&$form_state, $item, $mmtid, $is_group, $is_new, $is
   );
   $form['settings_perms']['table']['everyone'][] = _mm_ui_perms_table_row('group', 'everyone', t('All users'), '', NULL, $types, $x, $checks);
 
-  $form['settings_perms']['table']['indiv'] = array(
-    '#type' => 'value',
-    '#value' => array(
-      'title' => t('Individuals'),
-      'types' => $types,
-      'action' => mm_ui_add_user_subform('settings-perms-indiv-add', t('add'), t('User(s) to add to permissions:'), t('Add users to permissions'), 'Drupal.MMSettingsPermsAddUsers'),
-    ),
-  );
-  list($name, $msg, $owner_readonly) = mm_ui_owner_desc($x, $owner, $is_search);
-  $x['!class'] = t('this user');
-  $form['settings_perms']['table']['indiv'][] = _mm_ui_perms_table_row(
-    'user',
-    'owner',
-    t('<span class="settings-perms-owner-prefix">Owner: </span><span class="settings-perms-owner-name">!name</span>', array('!name' => $name)),
-    $msg,
-    $owner_readonly ? NULL : mm_ui_add_user_subform('settings-perms-indiv-owner', t('change'), t('Owner:'), t('Change the owner'), 'Drupal.MMSettingsPermsOwner', $owner, $name),
-    $types,
-    $x,
-    array(TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE)
-  );
   if (!$is_search) {
+    $form['settings_perms']['table']['indiv'] = array(
+      '#type' => 'value',
+      '#value' => array(
+        'title' => t('Individuals'),
+        'types' => $types,
+        'action' => mm_ui_add_user_subform('settings-perms-indiv-add', t('add'), t('User(s) to add to permissions:'), t('Add users to permissions'), 'Drupal.MMSettingsPermsAddUsers'),
+      ),
+    );
+    list($name, $msg, $owner_readonly) = mm_ui_owner_desc($form, $x, $owner, $is_search);
+    $x['!class'] = t('this user');
+    $form['settings_perms']['table']['indiv'][] = _mm_ui_perms_table_row(
+      'user',
+      'owner',
+      t('<span class="settings-perms-owner-prefix">Owner: </span><span class="settings-perms-owner-name">!name</span>', array('!name' => $name)),
+      $msg,
+      $owner_readonly ? NULL : mm_ui_add_user_subform('settings-perms-indiv-owner', t('change'), t('Owner:'), t('Change the owner'), 'Drupal.MMSettingsPermsOwner', $owner, $name),
+      $types,
+      $x,
+      array(TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE)
+    );
     $users = $groups = array();
     $checks = array(TRUE, FALSE, TRUE, FALSE, TRUE, FALSE, TRUE, FALSE); // defaults for new row when no users are listed
     // individual users
@@ -223,17 +224,16 @@ function mm_ui_content_edit(&$form_state, $item, $mmtid, $is_group, $is_new, $is
       // Tell the JS code that it needs to act differently
       $form['settings_perms']['limit_write_not_admin'] = array('#type' => 'hidden');
     }
-  }
 
-  $form['settings_perms']['table']['groups'] = array(
-    '#type' => 'value',
-    '#value' => array(
-      'title' => t('Groups'),
-      'types' => $types,
-      'action' => '<a href="#" title="' . t('Add a group') . '" onclick="return Drupal.MMSettingsPermsAddGroup()">' . t('add') . '</a>',
-    )
-  );
-  if (!$is_search) {
+    $form['settings_perms']['table']['groups'] = array(
+      '#type' => 'value',
+      '#value' => array(
+        'title' => t('Groups'),
+        'types' => $types,
+        'action' => '<a href="#" title="' . t('Add a group') . '" onclick="return Drupal.MMSettingsPermsAddGroup()">' . t('add') . '</a>',
+      )
+    );
+
     // If there is a POST, $groups will have already been populated by _mm_ui_form_parse_perms()
     if (!isset($form_state['post']['all_values_group'])) {
       $result = db_query(
@@ -267,15 +267,15 @@ function mm_ui_content_edit(&$form_state, $item, $mmtid, $is_group, $is_new, $is
         ),
       )
     );
-    foreach ($groups as $mmtid => $data) {
+    foreach ($groups as $gid => $data) {
       $checks = array();
       foreach (array_keys($types) as $type) {
         $checks[] = in_array($type, $data['modes']);
         $checks[] = $type == 'w' && $flags_not_admin['limit_write'];
       }
       $elem[0]['#title'] = $data['name'];
-      $elem[0][0]['#value'] = $data['members'];
-      $form['settings_perms']['table']['groups'][] = _mm_ui_perms_table_row('group', $mmtid, $elem, '', $checks[0] && $flags_not_admin['limit_write'] ? '' : $delete_link, $types, $x, $checks);
+      $elem[0][0]['#value'] = (mm_content_user_can($gid, 'w') ? l(t('Edit this group'), mm_content_get_mmtid_url($gid) . '/settings') . '<br />' : '') . $data['members'];
+      $form['settings_perms']['table']['groups'][] = _mm_ui_perms_table_row('group', $gid, $elem, '', $checks[0] && $flags_not_admin['limit_write'] ? '' : $delete_link, $types, $x, $checks);
     }
 
     // Empty row to be used when adding new groups
@@ -283,32 +283,32 @@ function mm_ui_content_edit(&$form_state, $item, $mmtid, $is_group, $is_new, $is
       $checks[0] = FALSE;
       $checks[1] = TRUE;
     }
-    else if (!$limit_write) {
+    else if (!isset($limit_write) || !$limit_write) {
       $checks[0] = $checks[1] = FALSE;
     }
     $elem[0][0]['#id'] = 'mm-permissions-group-new';
     $form['settings_perms']['table']['groups'][] = _mm_ui_perms_table_row('group', 'new', $elem, '', $delete_link, $types, $x, $checks);
 
     $form['settings_perms']['all_values_group'] = array('#type' => 'hidden');
-  }
 
-  if (user_access('propagate page perms')) {
-    $form['settings_perms']['propagate'] = array(
+    if (user_access('propagate page perms')) {
+      $form['settings_perms']['propagate'] = array(
+        '#type' => 'checkbox',
+        '#title' => t('Copy these permissions to all @subthings of this @thing', $x),
+        '#default_value' => FALSE,
+        '#description' => t('If this option is checked, the permissions will be copied to all @subthings of this one that you have permission to change.', $x),
+      );
+      $node_prop_desc = ' ' . t('If the option above is also checked, permissions will be copied to the content on all @subthings.', $x);
+    }
+
+    $form['settings_perms']['node_propagate'] = array(
       '#type' => 'checkbox',
-      '#title' => t('Copy these permissions to all @subthings of this @thing', $x),
+      '#title' => t('Copy these permissions to all content on this @thing', $x),
+      '#access' => !$is_group && user_access('propagate node perms'),
       '#default_value' => FALSE,
-      '#description' => t('If this option is checked, the permissions will be copied to all @subthings of this one that you have permission to change.', $x),
+      '#description' => t('If this option is checked, the permissions will be copied to all pieces of content on this @thing that you have permission to change.', $x) . $node_prop_desc,
     );
-    $node_prop_desc = ' ' . t('If the option above is also checked, permissions will be copied to the pieces of content on all @subthings.', $x);
-  }
-
-  $form['settings_perms']['node_propagate'] = array(
-    '#type' => 'checkbox',
-    '#title' => t('Copy these permissions to all nodes on this @thing', $x),
-    '#access' => !$is_group && user_access('propagate node perms'),
-    '#default_value' => FALSE,
-    '#description' => t('If this option is checked, the permissions will be copied to all pieces of content on this @thing that you have permission to change.', $x) . $node_prop_desc,
-  );
+  }   // !$is_search
 
   $form['settings_perms']['hover'] = array(
     '#type' => 'value',
@@ -331,7 +331,7 @@ function mm_ui_content_edit(&$form_state, $item, $mmtid, $is_group, $is_new, $is
     $form['settings_general']['name'] = array(
       '#type' => 'textfield',
       '#title' => $is_group ? t('Group name') : t('Page name'),
-      '#default_value' => $item->name,
+      '#default_value' => isset($item->name) ? $item->name : '',
       '#required' => TRUE,
       '#size' => 40,
       '#maxlength' => 128,
@@ -411,7 +411,7 @@ function mm_ui_content_edit(&$form_state, $item, $mmtid, $is_group, $is_new, $is
     }
     else {    // normal group
       mm_static('ui_content_edit_js', TRUE, $item->mmtid, 'group', 'members');
-      _mm_ui_userlist_setup(NULL, $form['members'], 'members', t('Members:'), FALSE, t('Choose the members of this group.'), '', TRUE);
+      _mm_ui_userlist_setup($is_search ? array() : NULL, $form['members'], 'members', t('Members:'), FALSE, t('Choose the members of this group.'), '', !$is_search);
       unset($form['members']['members']['#description']);
     }
   }
@@ -425,8 +425,8 @@ function mm_ui_content_edit(&$form_state, $item, $mmtid, $is_group, $is_new, $is
     $form['settings_general']['alias'] = array(
       '#type' => 'textfield',
       '#title' => t('URL name'),
-      '#default_value' => $item->alias,
-      '#required' => !$item->is_user_home && !$all_menus,
+      '#default_value' => isset($item->alias) ? $item->alias : '',
+      '#required' => (!isset($item->is_user_home) || !$item->is_user_home) && !$all_menus,
       '#size' => 20,
       '#maxlength' => 128,
       '#description' => t('The name that will be used in the Web address of the page. '.
@@ -447,8 +447,7 @@ function mm_ui_content_edit(&$form_state, $item, $mmtid, $is_group, $is_new, $is
     $predefined = array();
     // We need the module name, so don't use module_invoke_all()
     foreach (mm_module_implements('mm_tree_flags') as $module) {
-      $function = $module . '_mm_tree_flags';
-      $result = call_user_func_array($function, $args);
+      $result = call_user_func($module . '_mm_tree_flags');
       if (isset($result) && is_array($result)) {
         $predefined[$module] = $result;
       }
@@ -513,7 +512,7 @@ function mm_ui_content_edit(&$form_state, $item, $mmtid, $is_group, $is_new, $is
     $desc_add = '';
     foreach (list_themes() as $t)
       if ($t->status) {
-        if (!count($allowed_themes) || array_search($t->name, $allowed_themes) !== FALSE)
+        if ($is_search || !count($allowed_themes) || array_search($t->name, $allowed_themes) !== FALSE)
           $theme[$t->name] = $t->name;
         else if ($all_menus) {
           $theme[$t->name] = $t->name . ' *';
@@ -536,7 +535,7 @@ function mm_ui_content_edit(&$form_state, $item, $mmtid, $is_group, $is_new, $is
       $form['settings_appearance']['theme']['theme'] = array(
         '#type' => 'select',
         '#title' => t('Theme for this @thing and its children', $x),
-        '#default_value' => $item->theme,
+        '#default_value' => isset($item->theme) ? $item->theme : '',
         '#options' => $theme,
         '#description' => t('The theme will be applied to this @thing and its @subthings, unless overridden at a lower level.', $x) . $desc_add,
       );
@@ -604,7 +603,7 @@ function mm_ui_content_edit(&$form_state, $item, $mmtid, $is_group, $is_new, $is
         '#type' => 'checkbox',
         '#title' => t('Don\'t show this @thing in the menu', $x),
         '#description' => t('If checked, this page will not be listed in the navigation menu but can still be accessed directly using its URL address.'),
-        '#default_value' => $item->hidden,
+        '#default_value' => isset($item->hidden) ? $item->hidden : FALSE,
       );
     }
     else {
@@ -668,7 +667,7 @@ function mm_ui_content_edit(&$form_state, $item, $mmtid, $is_group, $is_new, $is
       $form['settings_appearance']['new_nodes']['node_info'] = array(
         '#type' => 'select',
         '#title' => t('Default attribution style'),
-        '#default_value' => $item->node_info,
+        '#default_value' => isset($item->node_info) ? $item->node_info : '',
         '#options' => _mm_ui_node_info_values(),
         '#description' => t('Unless disabled by an administrator, this value will be the default for all new content added to this page. You can change this behavior in the <em>Appearance</em> settings of the content.'),
       );
@@ -695,7 +694,7 @@ function mm_ui_content_edit(&$form_state, $item, $mmtid, $is_group, $is_new, $is
         '#type' => 'select',
         '#title' => t('Who can add comments by default'),
         '#access' => user_access('enable/disable comments') || user_access('administer comments'),
-        '#default_value' => $item->comment,
+        '#default_value' => isset($item->comment) ? $item->comment : '',
         '#options' => _mm_ui_comment_write_setting_values(),
         '#description' => t('Unless disabled by an administrator, this value will be the default for all new content added to this page. You can change this behavior in the <em>Comment settings</em> of the content.'),
       );
@@ -711,20 +710,20 @@ function mm_ui_content_edit(&$form_state, $item, $mmtid, $is_group, $is_new, $is
     $form['settings_appearance']['previews'] = array(
       '#type' => 'checkbox',
       '#title' => t('Show only the previews ("teasers") of all contents'),
-      '#default_value' => $item->previews,
+      '#default_value' => isset($item->previews) ? $item->previews : '',
     );
 
     if (variable_get('mm_enable_rss', FALSE)) {
       $form['settings_appearance']['rss'] = array(
         '#type' => 'checkbox',
         '#title' => t('Enable the RSS feed for this page'),
-        '#default_value' => $item->rss,
+        '#default_value' => !empty($item->rss) ? $item->rss : '',
       );
     }
     else {
       $form['settings_appearance']['rss'] = array(
         '#type' => 'value',
-        '#value' => $item->rss
+        '#value' => isset($item->rss) ? $item->rss : '',
       );
     }
 
@@ -913,7 +912,7 @@ function mm_ui_content_edit_validate($form, &$form_state) {
 
   list($form_vals['all_values_group'], $form_vals['all_values_user'], $form_vals['default_modes']) = _mm_ui_form_parse_perms($form_vals, TRUE);
 
-  if ($form_vals['archive']) {
+  if (!empty($form_vals['archive'])) {
     $archive_mmtid = mm_ui_mmlist_key0($form_vals['archive_mmtid']);
     // We're using a "fake_required", so this test is necessary
     if (!isset($archive_mmtid)) {
@@ -972,8 +971,8 @@ function mm_ui_content_edit_submit($form, &$form_state) {
   }
   $perms = array();
   foreach (array('w', 'a', 'u', 'r') as $m) {
-    $perms[$m]['groups'] = $form_vals['all_values_group'][$m];
-    $perms[$m]['users']  = $form_vals['all_values_user'][$m];
+    $perms[$m]['groups'] = isset($form_vals['all_values_group'][$m]) ? $form_vals['all_values_group'][$m] : array();
+    $perms[$m]['users']  = isset($form_vals['all_values_user'][$m]) ? $form_vals['all_values_user'][$m] : array();
   }
 
   $flags = array();
@@ -1001,8 +1000,8 @@ function mm_ui_content_edit_submit($form, &$form_state) {
     }
 
     $cascaded['allowed_node_types'] = array();
-    if (!$form_vals['allowed_node_types_inherit']) {
-      $cascaded['allowed_node_types'] = count($form_vals['allowed_node_types']) ? $form_vals['allowed_node_types'] : array('');  // intentionally empty
+    if (empty($form_vals['allowed_node_types_inherit'])) {
+      $cascaded['allowed_node_types'] = isset($form_vals['allowed_node_types']) && count($form_vals['allowed_node_types']) ? $form_vals['allowed_node_types'] : array('');  // intentionally empty
     }
   }
   else if (!$is_new) {
@@ -1019,8 +1018,8 @@ function mm_ui_content_edit_submit($form, &$form_state) {
         if (isset($form_vals[$setting_name]))
           $cascaded[$setting_name] = $form_vals[$setting_name];
 
-  $md = $form_vals['max_depth'];
-  $mp = $form_vals['max_parents'];
+  $md = isset($form_vals['max_depth']) ? $form_vals['max_depth'] : -1;
+  $mp = isset($form_vals['max_parents']) ? $form_vals['max_parents'] : -1;
   if (isset($form_vals['menu_start'])) {
     $ms = (int)$form_vals['menu_start'];
     if (!$ms && ($md != -1 || $mp != -1)) $ms = -1;
@@ -1035,8 +1034,8 @@ function mm_ui_content_edit_submit($form, &$form_state) {
     'alias'                => $alias,
     'default_mode'         => implode(',', $form_vals['default_modes']),
     'uid'                  => $owner,
-    'weight'               => isset($form_vals['weight']) && !$form_vals['hide_menu'] ? $form_vals['weight'] : 0,
-    'theme'                => $form_vals['theme'],
+    'weight'               => isset($form_vals['weight']) && empty($form_vals['hide_menu']) ? $form_vals['weight'] : 0,
+    'theme'                => isset($form_vals['theme']) ? $form_vals['theme'] : '',
     'cascaded'             => $cascaded,
     'perms'                => $perms,
     'recurs_perms'         => $form_vals['propagate'],
@@ -1046,17 +1045,17 @@ function mm_ui_content_edit_submit($form, &$form_state) {
     'menu_start'           => $ms,
     'max_depth'            => $md,
     'max_parents'          => $mp,
-    'rss'                  => $form_vals['rss'],
-    'node_info'            => $form_vals['node_info'],
-    'previews'             => $form_vals['previews'],
-    'hidden'               => $form_vals['hide_menu'],
-    'comment'              => $form_vals['comment'],
+    'rss'                  => isset($form_vals['rss']) ? $form_vals['rss'] : '',
+    'node_info'            => isset($form_vals['node_info']) ? $form_vals['node_info'] : NULL,
+    'previews'             => !empty($form_vals['previews']),
+    'hidden'               => !empty($form_vals['hide_menu']),
+    'comment'              => isset($form_vals['comment']) ? $form_vals['comment'] : '',
   );
   if ($is_group) {
     if (isset($form_vals['members'])) {
       $params['members'] = array_keys($form_vals['members']);
     }
-    $params['large_group'] = $form_vals['members-use-large-group'] == 'yes' ? TRUE : FALSE;
+    $params['large_group'] = isset($form_vals['members-use-large-group']) && $form_vals['members-use-large-group'] == 'yes' ? TRUE : FALSE;
     $params['qfield'] = $qfield = trim($form_vals['qfield']);
     $params['qfrom'] = trim($form_vals['qfrom']);
   }
@@ -1073,7 +1072,7 @@ function mm_ui_content_edit_submit($form, &$form_state) {
   }
   else if (user_access('create archives')) {
     db_query('DELETE FROM {mm_archive} WHERE main_mmtid = %d', $mmtid);
-    if ($form_vals['archive']) {
+    if (!empty($form_vals['archive'])) {
       $archive_mmtid = mm_ui_mmlist_key0($form_vals['archive_mmtid']);
       if ($archive_mmtid) {
         db_query("INSERT INTO {mm_archive} (main_mmtid, archive_mmtid, frequency, main_nodes) VALUES(%d, %d, '%s', %d)", $mmtid, $archive_mmtid, $form_vals['frequency'], $form_vals['main_nodes']);
@@ -1084,11 +1083,23 @@ function mm_ui_content_edit_submit($form, &$form_state) {
   }
 
   if ($is_new) {
-    drupal_set_message(t('The @subthing was successfully created.', $x));
+    if (!$is_group && in_array('r', $form_vals['default_modes'])) {
+      $x['!link'] = l(t('click here to change the settings'), "mm/$mmtid/settings");
+      drupal_set_message(t('<div id="public-warning">The @subthing was successfully created. Note that it is publicly viewable. To make adjustments to who can read it, !link.</div>', $x));
+    }
+    else {
+      drupal_set_message(t('The @subthing was successfully created.', $x));
+    }
     $form_state['redirect'] = "mm/$mmtid";
   }
   else {
-    drupal_set_message(t('The settings for this @thing have been saved.', $x));
+    if (!$is_group && in_array('r', $form_vals['default_modes'])) {
+      $x['!link'] = l(t('click here to change the settings'), "mm/$mmtid/settings");
+      drupal_set_message(t('<div id="public-warning">The settings for this @thing have been saved. Note that it is publicly viewable. To make adjustments to who can read it, !link.</div>', $x));
+    }
+    else {
+      drupal_set_message(t('The settings for this @thing have been saved.', $x));
+    }
     mm_content_clear_caches($mmtid);
   }
 }

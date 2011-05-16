@@ -1,5 +1,5 @@
 <?php
-// $Id: mm_theme.inc 4937 2011-01-21 21:40:04Z dan $
+// $Id: mm_theme.inc 5387 2011-05-03 21:09:51Z dan $
 
 /**
  * @file
@@ -14,7 +14,7 @@ $_mmlist_instance = 0;
  */
 function theme_mm_catlist($elt) {
   module_load_include('inc', 'monster_menus', 'mm_browser');
-  return _mm_theme_mm_list(MM_BROWSER_MODE_PAGE, $elt, $elt['#mm_list_popup_root'],
+  return _mm_theme_mm_list(MM_BROWSER_MODE_PAGE, $elt, isset($elt['#mm_list_popup_root']) ? $elt['#mm_list_popup_root'] : '',
       $elt['#title'] ? $elt['#title'] :
       ($elt['#mm_list_max'] == 1 ? t('Page:') : t('Pages:')),
       t('Path:'), '_mm_theme_list_info_cat');
@@ -69,9 +69,9 @@ function _mm_theme_mm_list($mode, $elt, $start_mmtid, $cat_label, $info_label,
   $max = intval($elt['#mm_list_max']);
   $min = intval($elt['#mm_list_min']);
   $exactly1 = $max == 1 && $min == 1;
-  $flags = $elt['#mm_list_buttons_underneath'] ? drupal_to_js(array('action_under' => TRUE)) : '{}';
+  $flags = isset($elt['#mm_list_buttons_underneath']) && $elt['#mm_list_buttons_underneath'] ? drupal_to_js(array('action_under' => TRUE)) : '{}';
   $select_callback = 'catSelectCallback';
-  if ($elt['#mm_list_readonly']) {
+  if (isset($elt['#mm_list_readonly']) && $elt['#mm_list_readonly']) {
     $label_above_actions = $label_add_cat = $label_replace = $label_delete = "''";
     if ($elt['#mm_list_no_info']) $select_callback = 'null';
   }
@@ -82,18 +82,18 @@ function _mm_theme_mm_list($mode, $elt, $start_mmtid, $cat_label, $info_label,
         ($max == 1 ? t('Choose...') : t('Replace...')));
     $label_delete = drupal_to_js($exactly1 ? '' : ($min == 0 && $max == 1 ? t('Clear') : t('Delete')));
   }
-  $label_above_info = $elt['#mm_list_no_info'] ? "''" : drupal_to_js($info_label);
+  $label_above_info = isset($elt['#mm_list_no_info']) && $elt['#mm_list_no_info'] ? "''" : drupal_to_js($info_label);
 
   if ($mode == MM_BROWSER_MODE_USER) $popup_base = '';
   else {
     $root = $elt['#mm_list_browser'];
     if ($elt['#type'] == 'mm_nodelist') {
       $popup_base = base_path() . "$root/$start_mmtid-$mode-$_mmlist_instance-" .
-        $elt['#mm_list_enabled'] . '-' . $elt['#mm_list_selectable'] . '--' . $elt['#field_name'] . '/';
+        $elt['#mm_list_enabled'] . '-' . $elt['#mm_list_selectable'] . '--' . (isset($elt['#field_name']) ? $elt['#field_name'] : '') . '/';
     }
     else {
       $popup_base = base_path() . "$root/$start_mmtid-$mode-$_mmlist_instance-" .
-        $elt['#mm_list_enabled'] . '-' . $elt['#mm_list_selectable'] . '/';
+        (isset($elt['#mm_list_enabled']) ? $elt['#mm_list_enabled'] : '') . '-' . $elt['#mm_list_selectable'] . '/';
     }
   }
   $popup_URL = $elt['#mm_list_popup_start'];
@@ -152,7 +152,7 @@ function _mm_theme_mm_list($mode, $elt, $start_mmtid, $cat_label, $info_label,
         $name .= '[' . join('][', array_slice($elt['#parents'], 1)) . ']';
   }
 
-  $other_name = $elt['#mm_list_other_name'];
+  $other_name = isset($elt['#mm_list_other_name']) ? $elt['#mm_list_other_name'] : '';
   $other_callback = isset($elt['#mm_list_other_callback']) ? $elt['#mm_list_other_callback'] : 'null';
 
   $modpath = drupal_get_path('module', 'monster_menus');
@@ -166,7 +166,7 @@ function _mm_theme_mm_list($mode, $elt, $start_mmtid, $cat_label, $info_label,
   $class = _mm_theme_add_class($elt);
   $desc = $elt['#description'] ?
       "\n" . '<div class="description">' . $elt['#description'] . '</div>' : '';
-  $auto = $elt['#mm_list_autocomplete_name'];
+  $auto = isset($elt['#mm_list_autocomplete_name']) ? $elt['#mm_list_autocomplete_name'] : '';
   $tag = $exactly1 || $elt['#mm_list_readonly'] && $elt['#mm_list_no_info'] ? '<span></span>' : '<a></a>';
   if (isset($_mmsr_regexp)) {
     $startup = "\nDrupal.settings.MMSR.fixups['[name=\"mm_list_obj$_mmlist_instance\"]'] = function() { mmListInit$_mmlist_instance(this) };";
@@ -235,7 +235,7 @@ function theme_mm_admin_list_blocks($form) {
     $rows[] = array(array('data' => t('No blocks defined.'), 'colspan' => '5'));
   }
 
-  $output .= theme('table', $form['header']['#value'], $rows);
+  $output = theme('table', $form['header']['#value'], $rows);
   if ($form['pager']['#value']) {
     $output .= drupal_render($form['pager']);
   }
@@ -323,6 +323,7 @@ function theme_mm_repeatlist_div($elt) {
  */
 function theme_mm_fake_required($elt) {
   $elt['#required'] = TRUE;
+  $elt['#autocomplete_path'] = '';
   $elt['#type'] = $elt['#mm_orig_type'];
   unset($elt['#mm_orig_type']);
   return theme($elt['#type'], $elt);
@@ -632,7 +633,7 @@ function theme_mm_ui_node_permissions($form) {
         if ($type == 'indiv_tbl') {
           if (!isset($item_uid)) $item_uid = $item['#mm_owner']['uid'];
           if (isset($form['everyone']['owner'])) $form['everyone']['owner']['#value'] = $item_uid;
-          list($name, $msg, $owner_readonly) = mm_ui_owner_desc(array('@thing' => $item['#mm_owner']['type']), $item_uid);
+          list($name, $msg, $owner_readonly) = mm_ui_owner_desc($form, array('@thing' => $item['#mm_owner']['type']), $item_uid);
           $kids[] = _mm_ui_perms_table_row(
             'user',
             'owner',
@@ -642,12 +643,18 @@ function theme_mm_ui_node_permissions($form) {
           );
 
           if (!$owner_readonly) {
-            $kids[] = array('#type' => 'hidden', '#name' => 'uid', '#value' => $item_uid);
+            $kids[] = array(
+              '#type' => 'hidden',
+              '#name' => 'uid',
+              '#value' => $item_uid,
+              '#id' => "uid-$item_uid",
+            );
           }
 
           foreach ($users as $uid => $name) {
             $obj = array(
               "user-w-$uid" => array(
+                '#id' => "user-w-$uid",
                 '#name' => "user-w-$uid",
                 '#type' => 'hidden',
                 '#value' => $uid,
@@ -668,6 +675,7 @@ function theme_mm_ui_node_permissions($form) {
               '#id' => 'mm-permissions-user-new',
             ),
             'user-w-new' => array(
+              '#id' => 'user-w-new',
               '#name' => 'user-w-new',
               '#type' => 'hidden',
               '#value' => 0,
@@ -682,6 +690,7 @@ function theme_mm_ui_node_permissions($form) {
             $temp_elem[0]['#title'] = $data['name'];
             $temp_elem[0][0]['#value'] = $data['members'];
             $temp_elem[0]["group-w-$mmtid"] = array(
+              '#id' => "group-w-$mmtid",
               '#name' => "group-w-$mmtid",
               '#type' => 'hidden',
               '#value' => $mmtid,
@@ -693,6 +702,7 @@ function theme_mm_ui_node_permissions($form) {
           $temp_elem = $item['#mm_groups_elem'];
           $temp_elem[0][0]['#id'] = 'mm-permissions-group-new';
           $temp_elem[0]['group-w-new'] = array(
+            '#id' => 'group-w-new',
             '#name' => 'group-w-new',
             '#type' => 'hidden',
             '#value' => 0,
@@ -718,7 +728,7 @@ function theme_mm_ui_permissions($form) {
   $rows = array();
   foreach (element_children($form) as $section_id) {
     $colspan = 1;
-    if (is_array($form[$section_id]['#value']['types'])) {
+    if (isset($form[$section_id]['#value']['types']) && is_array($form[$section_id]['#value']['types'])) {
       $colspan = count($form[$section_id]['#value']['types']) + 1;
     }
 
@@ -733,7 +743,7 @@ function theme_mm_ui_permissions($form) {
       ),
     );
 
-    if (is_array($form[$section_id]['#value']['types']) && $form[$section_id]['#value']['headings']) {
+    if (isset($form[$section_id]['#value']['types']) && is_array($form[$section_id]['#value']['types']) && isset($form[$section_id]['#value']['headings']) && $form[$section_id]['#value']['headings']) {
       foreach ($form[$section_id]['#value']['types'] as $type => $vals) {
         $row['data'][] = array(
           'header' => TRUE,
@@ -842,11 +852,12 @@ function theme_mm_page_wrapper($title, $body, $attributes = array('class' => 'mm
   if ($wrap_body_with_div) $body = "<div class=\"mm-page-wrapper\">$body</div>";
   $status = theme('status_messages');
   $closure = theme('closure');
+  $lang = $GLOBALS['language']->language;
 
   return <<<EOH
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
-<html xmlns="http://www.w3.org/1999/xhtml" lang="$GLOBALS[locale]"
-  xml:lang="$GLOBALS[locale]">
+<html xmlns="http://www.w3.org/1999/xhtml" lang="$lang"
+  xml:lang="$lang">
 <head>
   <meta http-equiv="Content-Style-Type" content="text/css" />
   <title>$title</title>
@@ -895,6 +906,11 @@ function theme_mm_ui_mark_yesno($yes) {
   return '<span class="mm-yesno-no">&#10007;</span>';
 }
 
+function theme_mm_get_renderer() {
+  require_once 'mm_renderer.inc';
+  return new mmRenderer();
+}
+
 // ****************************************************************************
 // * Private functions start here
 // ****************************************************************************
@@ -927,7 +943,9 @@ function _mm_theme_add_row_js($row) {
 
 // helper function for theme_mm_catlist when it calls _mm_theme_mm_list
 function _mm_theme_list_info_cat($mmtid, $name, &$url, &$info, &$popup_URL) {
-  list($mmtid, $node) = explode('/', $mmtid);
+  $parts = explode('/', $mmtid);
+  $mmtid = isset($parts[0]) ? $parts[0] : NULL;
+  $node = isset($parts[1]) ? $parts[1] : NULL;
 
   $parents = mm_content_get_parents($mmtid);
   array_shift($parents);  // skip root
@@ -938,8 +956,9 @@ function _mm_theme_list_info_cat($mmtid, $name, &$url, &$info, &$popup_URL) {
 
   $path = array();
   foreach ($parents as $par) {
-    if (!($tree = mm_content_get($par)))
-        break;
+    if (!($tree = mm_content_get($par))) {
+      break;
+    }
     $path[] = mm_content_expand_name($tree->name);
   }
 
@@ -972,7 +991,7 @@ function _mm_theme_list_info_group($mmtid, $name, &$url, &$info, &$popup_URL) {
 }
 
 function _mm_theme_add_class($elt) {
-  $list = explode(' ', $elt['#attributes']['class']);
+  $list = isset($elt['#attributes']['class']) ? explode(' ', $elt['#attributes']['class']) : array();
   if (count($list) == 1 && $list[0] == '') unset($list[0]);
   array_unshift($list, 'form-item');
   if (form_get_error($elt)) array_push($list, 'mm-list-error');

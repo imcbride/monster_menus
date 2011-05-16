@@ -1,5 +1,5 @@
 <?php
-// $Id: mm_ui_solver.inc 4528 2010-09-10 20:28:17Z dan $
+// $Id: mm_ui_solver.inc 5387 2011-05-03 21:09:51Z dan $
 
 /**
  * @file
@@ -54,10 +54,13 @@ function mm_ui_solver_table($mmtid, $acct) {
 
   $user_access = array();
   $is_admin = $acct->uid == 1;
-  if (!$is_admin) {
-    foreach (array('administer all menus', 'administer all users', 'administer all groups', 'view all menus') as $access_mode)
-      if ($acct->uid || substr($access_mode, 0, 4) == 'view')
-        $user_access[$access_mode] = user_access($access_mode, $acct);
+  foreach (array('administer all menus', 'administer all users', 'administer all groups', 'view all menus') as $access_mode) {
+    if ($acct->uid || substr($access_mode, 0, 4) == 'view') {
+      $user_access[$access_mode] = user_access($access_mode, $acct);
+    }
+    else {
+      $user_access[$access_mode] = FALSE;
+    }
   }
   $is_admin |= $user_access['administer all menus'];
 

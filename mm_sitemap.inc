@@ -1,11 +1,10 @@
 <?php
-// $Id: mm_sitemap.inc 4216 2010-06-25 18:36:37Z dan $
+// $Id: mm_sitemap.inc 5139 2011-03-11 19:41:39Z vquinn $
 /**
  * @file
  * Generate an XML sitemap based on Monster Menu permissions.
  */
 
-define('MM_SITEMAP_MAX_LEVEL', 6);
 global $_mm_sitemap_exclude_list;
 $_mm_sitemap_exclude_list = array(
   '/.system',

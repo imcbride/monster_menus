@@ -1,5 +1,5 @@
 <?php
-// $Id: mm_ui_content_copymove.inc 4953 2011-01-24 21:55:03Z dan $
+// $Id: mm_ui_content_copymove.inc 5387 2011-05-03 21:09:51Z dan $
 
 /**
  * @file
@@ -135,7 +135,7 @@ function mm_ui_content_copymove(&$form_state, $item) {
 
   if (!$is_group) {
     $form['name_alias']['alias'] = array(
-      '#type' => $item->is_user_home || user_access('administer all menus') ? 'textfield' : 'mm_fake_required',
+      '#type' => (isset($item->is_user_home) && $item->is_user_home) || user_access('administer all menus') ? 'textfield' : 'mm_fake_required',
       '#mm_orig_type' => 'textfield',
       '#title' => t('New URL name'),
       '#default_value' => $item->alias,
@@ -194,7 +194,7 @@ function mm_ui_content_copymove_validate($form, &$form_state, $restore = FALSE) 
       $message = 'You cannot move to a recycle bin using this option. Please use the Delete option, instead.';
     }
 
-  if ($message) {
+  if (!empty($message)) {
     watchdog('mm', $message, array(), WATCHDOG_WARNING, "source: $src_mmtid, dest: $dest_mmtid");
     form_set_error('', t($message));
     return;

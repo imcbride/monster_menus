@@ -1,13 +1,10 @@
 <?php
-// $Id: mm_ui.inc 5041 2011-02-16 14:22:32Z vquinn $
+// $Id: mm_ui.inc 5414 2011-05-12 18:35:52Z dan $
 
 /**
  * @file
  * User interface routines for monster_menus
  */
-
-define('MM_UI_MAX_USERS_IN_GROUP', 20); // max number of users to display (there can be more in the DB)
-define('MM_UI_MAX_REORDER_ITEMS', 100); // max number of nodes/subpages to reorder
 
 /**
  * Allow the user to edit a node
@@ -21,9 +18,10 @@ define('MM_UI_MAX_REORDER_ITEMS', 100); // max number of nodes/subpages to reord
  *   The HTML code for the results
  */
 function mm_ui_node_edit($node) {
-  if ($_POST['op'] == t('Delete')) {
+  if (isset($_POST['op']) && $_POST['op'] == t('Delete')) {
     // Redirect, to make the tabs disappear.
-    if ($_REQUEST['destination']) {
+    $destination = '';
+    if (isset($_REQUEST['destination'])) {
       $destination = drupal_get_destination();
       unset($_REQUEST['destination']);
     }
@@ -31,7 +29,7 @@ function mm_ui_node_edit($node) {
     return;
   }
 
-  return drupal_get_form($node->type .'_node_form', $node);
+  return drupal_get_form($node->type . '_node_form', $node);
 }
 
 /**
@@ -144,7 +142,7 @@ function mm_ui_node_add($mmtid, $type = '') {
     // If no (valid) node type has been provided, display a node type overview.
     mm_content_add_breadcrumb(t('Add content'));
     $hidden_types = mm_get_node_info(MM_NODE_INFO_ADD_HIDDEN);
-    $admin_only_item = array();
+    $admin_only_item = $item = array();
     foreach ($types as $type) {
       $type_url_str = $type->type;
       $title = t('Add a new @s.', array('@s' => $type->name));
@@ -159,7 +157,8 @@ function mm_ui_node_add($mmtid, $type = '') {
         $admin_only_item[$type->name] = $out;
       }
     }
-    if (isset($item)) {
+
+    if ($item || $admin_only_item) {
       if (count($item) == 1 && !user_access('administer all menus')) {
         drupal_goto($sole_direct_link);
       }
@@ -244,6 +243,7 @@ function monster_menus_form_alter(&$form, $form_state, $form_id) {
     }
 
     if (isset($form['title'])) {
+      if (!isset($form['title']['#description'])) $form['title']['#description'] = '';
       $form['title']['#description'] .= ' ' . t('To prevent the title from displaying when viewing a page, surround it with square brackets. Example: [My Title]');
     }
 
@@ -369,10 +369,20 @@ function monster_menus_form_alter(&$form, $form_state, $form_id) {
         if (!isset($values)) {
           $tree = mm_content_get($this_mmtid);
           $mmlist = array($this_mmtid => mm_content_expand_name($tree->name));
-          mm_content_get_default_node_perms($this_mmtid, $grouplist, $userlist, MM_UI_MAX_USERS_IN_GROUP);
+          mm_content_get_default_node_perms($this_mmtid, $temp_grouplist, $userlist, MM_UI_MAX_USERS_IN_GROUP);
+
+          $grouplist = array();
+          foreach ($temp_grouplist as $gid => $name) {
+            $members = mm_content_get_users_in_group($gid, '<br />', FALSE, 20, TRUE);
+            if ($members == '') $members = t('(none)');
+            $grouplist[$gid]['name'] = $name;
+            $grouplist[$gid]['members'] = $members;
+          }
+
           $uid = $user->uid;
           $everyone = array_search('u', explode(',', $tree->default_mode)) !== FALSE;
           $node->show_node_info = $tree->node_info;
+
           $node->comment = $tree->comment;
           if (variable_get('mm_finegrain_comment_readability', FALSE)) {
             $node->comments_readable = mm_content_resolve_cascaded_setting('comments_readable', $this_mmtid, $cascaded_at, $cascaded_parent);
@@ -432,7 +442,7 @@ function monster_menus_form_alter(&$form, $form_state, $form_id) {
       unset($form['buttons']['preview']);
     }
     else {
-      if (isset($form['comment_settings']['comment']) && !$node->nid) {
+      if (isset($form['comment_settings']['comment']) && (!isset($node->nid) || !$node->nid)) {
         $form['comment_settings']['comment']['#default_value'] = $node->comment;
       }
       // provide alternate 'sticky' checkbox
@@ -473,9 +483,9 @@ function monster_menus_form_alter(&$form, $form_state, $form_id) {
       '#collapsible' => TRUE,
       '#collapsed' => TRUE,
     ));
-    $publish_on = _mm_ui_date_to_string($node->publish_on);
-    $unpublish_on = _mm_ui_date_to_string($node->unpublish_on);
-    if (module_exists('date_popup') && !$values['_via_drupal_execute']) {
+    $publish_on = isset($node->publish_on) ? _mm_ui_date_to_string($node->publish_on) : '';
+    $unpublish_on = isset($node->unpublish_on) ? _mm_ui_date_to_string($node->unpublish_on) : '';
+    if (module_exists('date_popup') && (!isset($values['_via_drupal_execute']) || !$values['_via_drupal_execute'])) {
       _mm_ui_form_array_merge($form['scheduling'], 'publish_on', array(
         '#type' => 'date_popup',
         '#title' => t('Publish on'),
@@ -517,7 +527,7 @@ function monster_menus_form_alter(&$form, $form_state, $form_id) {
     _mm_ui_form_array_merge($form['scheduling'], 'set_change_date', array(
       '#type' => 'checkbox',
       '#title' => t('Use <em>Publish on</em> date for attributions'),
-      '#default_value' => $node->set_change_date,
+      '#default_value' => isset($node->set_change_date) ? $node->set_change_date : '',
       '#description' => t('Use the date above instead of the content\'s last modified date when showing <em>Submitted on [date]</em> or <em>Submitted by [user] on [date]</em>'),
     ));
 
@@ -525,7 +535,7 @@ function monster_menus_form_alter(&$form, $form_state, $form_id) {
       unset($form['author']['name']);
       $form['mm_appearance']['author'] = $form['author'];
       unset($form['author']);
-      if ($form['mm_appearance']['author']['#access'] !== FALSE && isset($form['mm_appearance']['author']['date']) && module_exists('date_popup') && !$values['_via_drupal_execute']) {
+      if ($form['mm_appearance']['author']['#access'] !== FALSE && isset($form['mm_appearance']['author']['date']) && module_exists('date_popup') && (!isset($values['_via_drupal_execute']) || !$values['_via_drupal_execute'])) {
         $form['mm_appearance']['author']['date']['#type'] = 'date_popup';
         $form['mm_appearance']['author']['date']['#description'] = '';
         unset($form['mm_appearance']['author']['date']['#maxlength']);
@@ -885,6 +895,9 @@ function monster_menus_theme() {
     'mm_tabbed_ui' => array(
         'file' => 'mm_theme.inc',
         'arguments' => array('title' => NULL, 'outer_id' => NULL, 'tabs' => NULL, 'selected' => '', 'before_tabs' => '')),
+    'mm_get_renderer' => array(
+        'file' => 'mm_theme.inc',
+        'arguments' => array()),
   );
   foreach (mm_node_types() as $type) {
     $themes = array_merge($themes, $type['themes']);
@@ -1215,12 +1228,12 @@ function _mm_ui_is_user_home(&$item) {
   }
 }
 
-function mm_ui_owner_desc($x, $item_uid, $is_search = FALSE) {
+function mm_ui_owner_desc($form, $x, $item_uid, $is_search = FALSE) {
   global $user;
 
   if ($is_search || user_access('administer all menus')) {
     $msg = t('The owner always has full access.', $x);
-    if ($form['#id'] == 'node-form') $msg .= ' ' . t('The owner is also publicly visible as the submitter.');
+    if (isset($form['#id']) && $form['#id'] == 'node-form') $msg .= ' ' . t('The owner is also publicly visible as the submitter.');
     return array(mm_ui_uid2name($item_uid), $msg, FALSE);
   }
 
@@ -1290,7 +1303,7 @@ function _mm_ui_node_form_perms(&$form, $userlist, $grouplist, $everyone,
   }
 
   $form['settings_perms']['table']['indiv_tbl'] = array();
-  if (!$is_search) {
+  if (!isset($is_search) || !$is_search) {
     $form['settings_perms']['table']['indiv_tbl'][] = array(
       '#type' => 'markup',
       '#mm_delete_link' => '<a href="#" title="' . t('Remove this user') . '" onclick="return Drupal.MMSettingsPermsDelete(this)">' . t('delete') . '</a>',
@@ -1311,7 +1324,7 @@ function _mm_ui_node_form_perms(&$form, $userlist, $grouplist, $everyone,
       'action' => '<a href="#" title="' . t('Add a group') . '" onclick="return Drupal.MMSettingsPermsAddGroup()">' . t('add') . '</a>',
     )
   );
-  if (!$is_search) {
+  if (!isset($is_search) || !$is_search) {
     $elem = array(
       array(
         '#type' => 'fieldset',
@@ -1457,7 +1470,7 @@ function _mm_ui_comment_read_setting_values($blank) {
 // Set form arrays in such a way that content added beforehand in other modules'
 // hook_form_alter() is preserved
 function _mm_ui_form_array_merge(&$form, $element, $value) {
-  $form[$element] = is_array($form[$element]) ? array_merge($value, $form[$element]) : $value;
+  $form[$element] = isset($form[$element]) && is_array($form[$element]) ? array_merge($value, $form[$element]) : $value;
 }
 
 function _mm_ui_form_parse_perms($form_vals, $validate) {

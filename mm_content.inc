@@ -1,187 +1,10 @@
 <?php
-// $Id: mm_content.inc 5089 2011-03-01 15:19:22Z dan $
+// $Id: mm_content.inc 5403 2011-05-11 13:47:37Z dan $
 
 /**
  * @file
  * Functions related to the retrieval of data for monster menus
  */
-
-// Constants used in mm_content_get()
-define('MM_GET_ARCHIVE',                '_arch');  // return archive status
-define('MM_GET_FLAGS',                  '_flags'); // return flags
-define('MM_GET_PARENTS',                '_par');   // return parents
-
-// Constants used in mm_content_get_tree() and mm_content_get_query()
-define('MM_GET_TREE_ADD_SELECT',        '_sel');   // add to list of selected columns
-define('MM_GET_TREE_BIAS_ANON',         '_bias');  // assume user 0 can't read any groups
-define('MM_GET_TREE_DEPTH',             '_depth'); // tree recursion depth
-define('MM_GET_TREE_FAKE_READ_BINS',    '_read');  // pretend user has read on all bins (used internally)
-define('MM_GET_TREE_FILTER_BINS',       '_bins');  // return recycle bins
-define('MM_GET_TREE_FILTER_DOTS',       '_dots');  // return all entries with names starting with '.'
-define('MM_GET_TREE_FILTER_GROUPS',     '_grps');  // get groups
-define('MM_GET_TREE_FILTER_NORMAL',     '_norm');  // get entries not group or in /users
-define('MM_GET_TREE_FILTER_USERS',      '_usrs');  // get entries in /users
-define('MM_GET_TREE_MMTID',             '_mmtid'); // tree ID to query
-define('MM_GET_TREE_NODE',              '_node');  // node object to query permissions for
-define('MM_GET_TREE_RETURN_BINS',       '_rbins'); // return list of parent recycle bins
-define('MM_GET_TREE_RETURN_BLOCK',      '_rblk');  // return attributes from the mm_tree_block table
-define('MM_GET_TREE_RETURN_FLAGS',      '_rflgs'); // return attributes from the mm_tree_flags table
-define('MM_GET_TREE_RETURN_KID_COUNT',  '_rkids'); // return the number of children each entry has
-define('MM_GET_TREE_RETURN_MTIME',      '_rmods'); // return the mtime and muid fields
-define('MM_GET_TREE_RETURN_NODE_COUNT', '_rnode'); // include a "nodecount" field, containing the number of nodes using this entry
-define('MM_GET_TREE_RETURN_PERMS',      '_rprms'); // return whether or not the user can perform an action
-define('MM_GET_TREE_RETURN_TREE',       '_rtree'); // return attributes from the mm_tree table
-define('MM_GET_TREE_SORT',              '_sort');  // sort results by weight, alpha, etc.; always TRUE when depth != 0
-define('MM_GET_TREE_USER',              '_user');  // user object to test permissions against
-define('MM_GET_TREE_WHERE',             '_where'); // add a WHERE clause to the outermost query
-
-// Constants used only in mm_content_get_tree()
-define('MM_GET_TREE_ADD_TO_CACHE',      '_cache'); // add results to the caches used by mm_content_get() and mm_content_get_parents()
-define('MM_GET_TREE_BLOCK',             '_block'); // retrieve entries which appear in a particular block
-define('MM_GET_TREE_FILTER_HIDDEN',     '_hide');  // get "hidden" entries
-define('MM_GET_TREE_HERE',              '_here');  // list of tree IDs currently being viewed
-define('MM_GET_TREE_ITERATOR',          '_iter');  // getTreeIterator (or subclass)
-define('MM_GET_TREE_PRUNE_PARENTS',     '_ppar');  // prune parents depending upon max_parents
-define('MM_GET_TREE_VIRTUAL',           '_virt');  // include virtual user list sub-entries
-
-define('MM_GET_TREE_STATE_COLLAPSED',   (1<<0));
-define('MM_GET_TREE_STATE_DENIED',      (1<<1));
-define('MM_GET_TREE_STATE_EXPANDED',    (1<<2));
-define('MM_GET_TREE_STATE_HERE',        (1<<3));
-define('MM_GET_TREE_STATE_HIDDEN',      (1<<4));
-define('MM_GET_TREE_STATE_LEAF',        (1<<5));
-define('MM_GET_TREE_STATE_RECYCLE',     (1<<6));
-
-// Constants used in mm_content_copy()
-define('MM_COPY_ALIAS',                 'alia');
-define('MM_COPY_COMMENTS',              'comm');
-define('MM_COPY_CONTENTS',              'cont');
-define('MM_COPY_ITERATE_ALTER',         'itra');
-define('MM_COPY_NAME',                  'name');
-define('MM_COPY_NODE_PRESAVE_ALTER',    'noda');
-define('MM_COPY_OWNER',                 'ownr');
-define('MM_COPY_READABLE',              'read');
-define('MM_COPY_RECUR',                 'recr');
-define('MM_COPY_TREE_PRESAVE_ALTER',    'trea');
-define('MM_COPY_TREE_SKIP_DUPS',        'tdup');
-
-// Constants present in mm_tree.name
-define('MM_ENTRY_NAME_DEFAULT_USER',    '.Default');
-define('MM_ENTRY_NAME_DISABLED_USER',   '.Disabled');
-define('MM_ENTRY_NAME_GROUPS',          '.Groups');
-define('MM_ENTRY_NAME_RECYCLE',         '.Recycle');
-define('MM_ENTRY_NAME_USERS',           '.Users');
-define('MM_ENTRY_NAME_VIRTUAL_GROUP',   '.Virtual');
-
-// The maximum number of sub-items per item in the tree is
-// MM_CONTENT_BTOA_BASE ^ MM_CONTENT_BTOA_CHARS. If you might have more than
-// this many /Users (or any other level of the tree) someday, increase
-// MM_CONTENT_BTOA_CHARS and run mm_content_update_sort(). A larger
-// MM_CONTENT_BTOA_BASE cannot be used, unless you are using a case-sensitive
-// collation on the mmtree.sort_idx database column.
-//
-// The maximum nesting level of the tree is the length of mm_tree.sort_idx /
-// MM_CONTENT_BTOA_CHARS. While you can increase this by altering the schema,
-// you may find that MySQL starts to complain about there being too many tables
-// in the JOIN in custom_url_rewrite_inbound(). MM_CONTENT_MYSQL_MAX_JOINS is
-// used in monster_menus.install to ensure that this limit isn't exceeded.
-define('MM_CONTENT_BTOA_START',      ord('!'));
-define('MM_CONTENT_BTOA_BASE',       64);
-define('MM_CONTENT_BTOA_CHARS',      4);
-define('MM_CONTENT_MYSQL_MAX_JOINS', 61);
-
-// Constants related to the virtual group "dirty" field
-define('MM_VGROUP_DIRTY_NOT',       0); // not dirty
-define('MM_VGROUP_DIRTY_NEXT_CRON', 1); // update during next hook_cron()
-define('MM_VGROUP_DIRTY_FAILED',    2); // previously failed sanity check
-define('MM_VGROUP_DIRTY_REDO',      3); // failed, but OK to regenerate
-// If the count of users in a virtual group decreases by more than this ratio,
-// return an error message and stop the vgroup regeneration. Set the matching
-// record's "dirty" field in mm_vgroup_query to MM_VGROUP_DIRTY_REDO to ignore
-// this condition and regenerate the group during the next run.
-define('MM_VGROUP_COUNT_SANITY',    0.20);
-
-class mmRenderer {
-  public function __construct() {
-    // To avoid having to sort, this array must be in increasing order
-    $this->state_to_css = array(     // Do not translate these with t()
-      MM_GET_TREE_STATE_COLLAPSED => 'collapsed',
-      MM_GET_TREE_STATE_DENIED =>    'denied',
-      MM_GET_TREE_STATE_EXPANDED =>  'expanded',
-      MM_GET_TREE_STATE_HERE =>      'here',
-      MM_GET_TREE_STATE_HIDDEN =>    'hidden-entry',
-      MM_GET_TREE_STATE_LEAF =>      'leaf',
-      MM_GET_TREE_STATE_RECYCLE =>   'recycle-bin',
-    );
-    $this->state_cache = array();
-    $keys = array_keys($this->state_to_css);
-    $this->state_max = array_pop($keys);
-  }
-
-  public function state_class($leaf) {
-    if (!isset($this->state_cache[$leaf->state])) {
-      $state = $leaf->state;
-      $state_css = array();
-      $i = 0;
-      $bit = 0;
-      while ($state && $bit != $this->state_max) {
-        $bit = 1 << $i++;
-        if ($state & $bit && isset($this->state_to_css[$bit])) {
-          $state_css[] = $this->state_to_css[$bit];
-          $state ^= $bit;
-        }
-      }
-      $this->state_cache[$leaf->state] = join(' ', $state_css);
-    }
-    return $this->state_cache[$leaf->state];
-  }
-
-  public function prefix_leaf($leaf, $item) {
-    return '<li class="' . $this->state_class($leaf) . '">';
-  }
-
-  public function link_leaf($leaf, $item, $link_item) {
-//    if( $leaf->nodecount === '0' ) $item['title'] .= t(' [no pages]');
-    $atts = !empty($item['description']) ? array('title' => $item['description']) : array();
-
-    if ($link_item['path'] != $_GET['q'] &&
-        ($leaf->state & (MM_GET_TREE_STATE_EXPANDED|MM_GET_TREE_STATE_HERE)) == (MM_GET_TREE_STATE_EXPANDED|MM_GET_TREE_STATE_HERE))
-      $atts['class'] = 'active';
-
-    if ($leaf->state & MM_GET_TREE_STATE_HIDDEN) $item['title'] .= ' ' . t('(hidden)');
-
-    if ($leaf->state & MM_GET_TREE_STATE_DENIED) $atts['rel'] = 'nofollow';
-
-    return l($item['title'], $link_item['path'], array('attributes' => $atts, 'query' => isset($item['query']) ? $item['query'] : NULL));
-  }
-
-  public function suffix_leaf($leaf, $item) {
-    return "</li>\n";
-  }
-
-  public function prefix_parent($leaf, $item) {
-    return "\n<ul class=\"menu\">";
-  }
-
-  public function suffix_parent($leaf, $item) {
-    return "</ul>\n";
-  }
-
-  public function is_visible($leaf) {
-    if ($leaf->name == MM_ENTRY_NAME_RECYCLE) {
-      return mm_content_user_can_recycle($leaf->mmtid, 'r');
-    }
-
-    if (isset($leaf->perms) && ($leaf->perms['w'] || $leaf->perms['a'] || $leaf->perms['u'])) {
-      return TRUE;
-    }
-
-    return !variable_get('mm_hide_empty_pages', FALSE) || $leaf->nodecount !== '0';  // returns true if $leaf->nodecount is not set
-  }
-}
-
-global $_mm_content_default_renderer;
-$_mm_content_default_renderer = new mmRenderer();
 
 /**
  * Render an entry and its children as HTML
@@ -199,19 +22,23 @@ $_mm_content_default_renderer = new mmRenderer();
  *   Depth to display; set to -1 to show all levels
  * @param $renderer
  *   mmRenderer (or subclass) to use in rendering the HTML. If omitted,
- *   use $_mm_content_default_renderer, which produces a simple menu tree.
+ *   uses theme('mm_get_renderer') which, by default, produces a simple menu
+ *   tree.
  * @return
- *   The HTML code
+ *   An array of HTML code elements:
+ *    - 'prefix': the prefix for the items, such as <ul>
+ *    - 'body': the items, such as <li>...</li>
+ *    - 'suffix': the suffix for the items, such as </ul>
  */
 function mm_content_render_tree($tree, &$i = 0, &$path = NULL, &$parents = array('mm'), $depth = -1, $renderer = NULL) {
-
+  $output = '';
   if ($i >= count($tree)) return;
 
   if (!isset($renderer)) {
-    global $_mm_content_default_renderer;
-    $renderer = $_mm_content_default_renderer;
+    $renderer = theme('mm_get_renderer');
   }
 
+  $body = '';
   $lev0 = $tree[$i]->level;
   while ($i < count($tree) && $tree[$i]->level == $lev0) {
     $leaf = $tree[$i];
@@ -234,23 +61,30 @@ function mm_content_render_tree($tree, &$i = 0, &$path = NULL, &$parents = array
         'type' => MENU_DYNAMIC_ITEM);
     }
 
-    $output .= $renderer->prefix_leaf($leaf, $item) .
+    $body .= $renderer->prefix_leaf($leaf, $item, $link_item) .
         $renderer->link_leaf($leaf, $item, $link_item);
 
     while (++$i < count($tree) && $tree[$i]->level > $lev0) {
       if ($tree[$i]->level == $lev0 + 1 && ($depth || $leaf->state & MM_GET_TREE_STATE_EXPANDED)) {
         $parents[] = $leaf->mmtid;
-        $output .= $renderer->prefix_parent($tree[$i], $item) .
-            mm_content_render_tree($tree, $i, $path, $parents, 0, $renderer) .
-            $renderer->suffix_parent($tree[$i], $item);
+        $cur_leaf = $tree[$i];
+        $child = mm_content_render_tree($tree, $i, $path, $parents, 0, $renderer);
+        $body .= $renderer->prefix_parent($cur_leaf, $item, $link_item) .
+            $child['body'] .
+            $renderer->suffix_parent($cur_leaf, $item, $link_item);
         array_pop($parents);
         $i--;
       }
     }
 
-    $output .= $renderer->suffix_leaf($leaf, $item);
+    $body .= $renderer->suffix_leaf($leaf, $item, $link_item);
   }
-  return $output;
+
+  return array(
+    'prefix' => $renderer->prefix_all(),
+    'body'   => $body,
+    'suffix' => $renderer->suffix_all(),
+  );
 }
 
 /**
@@ -383,17 +217,21 @@ function mm_content_get_tree($mmtid = 1, $params = NULL) {
     MM_GET_TREE_DEPTH =>         -1,
     MM_GET_TREE_FILTER_BINS =>   TRUE,
     MM_GET_TREE_FILTER_DOTS =>   TRUE,
+    MM_GET_TREE_FILTER_GROUPS => FALSE,
     MM_GET_TREE_FILTER_HIDDEN => FALSE,
+    MM_GET_TREE_FILTER_NORMAL => FALSE,
+    MM_GET_TREE_FILTER_USERS =>  FALSE,
     MM_GET_TREE_HERE =>          NULL,
     MM_GET_TREE_ITERATOR =>      NULL,
     MM_GET_TREE_PRUNE_PARENTS => FALSE,
+    MM_GET_TREE_SORT =>          FALSE,
     MM_GET_TREE_USER =>          $user,
     MM_GET_TREE_VIRTUAL =>       TRUE,
-    'found' =>        -1,
-    'level' =>        0,
-    'parent_level' => -1,
-    'pprune' =>       -1,
-    'q' =>            NULL,
+    'found' =>                   -1,
+    'level' =>                   0,
+    'parent_level' =>            -1,
+    'pprune' =>                  -1,
+    'q' =>                       NULL,
   );
 
   if (!is_array($params)) $params = array();
@@ -415,6 +253,7 @@ function mm_content_get_tree($mmtid = 1, $params = NULL) {
 function _mm_content_get_tree($mmtid, &$params) {
   $users_mmtid = mm_content_users_mmtid();
 
+  $have_virtual = FALSE;
   if (!$params['q']) {
     $params['q'] = _mm_content_get_tree_query($mmtid, $params);
     if (is_array($params[MM_GET_TREE_HERE]))
@@ -441,11 +280,11 @@ function _mm_content_get_tree($mmtid, &$params) {
       break;
     }
     else if ($r->level > $params['parent_level']) {
-      if (is_null($r->bid) || !isset($r->bid)) {
+      if (!isset($r->bid) || is_null($r->bid)) {
         $r->bid = 0;
         $r->max_depth = $r->max_parents = -1;
       }
-      $add = _mm_content_get_tree_recurs($r, $params, $parent_is_group, $parent_is_user, $last);
+      $add = _mm_content_get_tree_recurs($r, $params, isset($r->IS_GROUP) ? $r->IS_GROUP : FALSE, isset($r->IS_USER) ? $r->IS_USER : FALSE, $last);
     }
 
     if (is_array($rows) && is_array($add)) {
@@ -594,7 +433,7 @@ function _mm_content_get_tree_query($mmtid, $params) {
       if ($i == $max) {
         if ($mmtid != $users_mmtid) $params2[MM_GET_TREE_DEPTH] = $params[MM_GET_TREE_DEPTH];
         $params2[MM_GET_TREE_BLOCK] = $params[MM_GET_TREE_BLOCK];
-        $params2[MM_GET_TREE_SORT] = $params[MM_GET_TREE_DEPTH] != 0 || $params[MM_GET_TREE_SORT];
+        $params2[MM_GET_TREE_SORT] = $params[MM_GET_TREE_DEPTH] != 0 || (isset($params[MM_GET_TREE_SORT]) && $params[MM_GET_TREE_SORT]);
         $query[] = mm_content_get_query($params2);
       }
       else {
@@ -625,7 +464,7 @@ function _mm_content_get_tree_recurs($r, $params, $parent_is_group, $parent_is_u
       unset($r->$field);
     }
 
-  if ($params[MM_GET_TREE_RETURN_PERMS] && !isset($params[MM_GET_TREE_ITERATOR])) {
+  if (isset($params[MM_GET_TREE_RETURN_PERMS]) && $params[MM_GET_TREE_RETURN_PERMS] && !isset($params[MM_GET_TREE_ITERATOR])) {
     if ($r->perms['IS_RECYCLE_BIN']) {
       $r->perms['u'] = TRUE;
       $r->perms['r'] = mm_content_user_can_recycle($r->mmtid, 'r', $params[MM_GET_TREE_USER]);
@@ -637,7 +476,7 @@ function _mm_content_get_tree_recurs($r, $params, $parent_is_group, $parent_is_u
     }
   }
 
-  if ($params[MM_GET_TREE_ADD_TO_CACHE]) {
+  if (isset($params[MM_GET_TREE_ADD_TO_CACHE]) && $params[MM_GET_TREE_ADD_TO_CACHE]) {
     if (!isset($_mmtbt_cache[$r->mmtid])) {
       $_mmtbt_cache[$r->mmtid] = $r;
     }
@@ -652,25 +491,25 @@ function _mm_content_get_tree_recurs($r, $params, $parent_is_group, $parent_is_u
           $_mmuc_cache[$r->mmtid][$params[MM_GET_TREE_USER]->uid][$field] = $val;
   }
 
-  if ($params[MM_GET_TREE_RETURN_FLAGS]) {
+  if (isset($params[MM_GET_TREE_RETURN_FLAGS]) && $params[MM_GET_TREE_RETURN_FLAGS]) {
     $r->flags = _mm_content_split_flags($r->flags);
   }
 
   if (!isset($r->is_group)) $r->is_group =
     $parent_is_group || $r->name == MM_ENTRY_NAME_GROUPS ||
-    isset($params[MM_GET_TREE_ITERATOR]) && $params[MM_GET_TREE_ITERATOR]->parent_is_group ||
+    isset($params[MM_GET_TREE_ITERATOR]->parent_is_group) && $params[MM_GET_TREE_ITERATOR]->parent_is_group ||
     (isset($r->perms) ? $r->perms['IS_GROUP'] : mm_content_user_can($r->mmtid, 'IS_GROUP'));
 
   if (!isset($r->is_user)) $r->is_user =
     $parent_is_user  || $r->name == MM_ENTRY_NAME_USERS  ||
-    isset($params[MM_GET_TREE_ITERATOR]) && $params[MM_GET_TREE_ITERATOR]->parent_is_user  ||
+    isset($params[MM_GET_TREE_ITERATOR]->parent_is_user) && $params[MM_GET_TREE_ITERATOR]->parent_is_user  ||
     (isset($r->perms) ? $r->perms['IS_USER']  : mm_content_user_can($r->mmtid, 'IS_USER'));
 
   $r->is_dot = $r->name[0] == '.';
 
   if ($r->is_group) unset($r->nodecount);
 
-  $visible = ($params[MM_GET_TREE_FILTER_GROUPS] || !$r->is_group) &&
+  $visible = ((isset($params[MM_GET_TREE_FILTER_GROUPS]) && $params[MM_GET_TREE_FILTER_GROUPS]) || !$r->is_group) &&
       ($params[MM_GET_TREE_FILTER_NORMAL] || $r->is_group || $r->is_user) &&
       ($params[MM_GET_TREE_FILTER_USERS] || !$r->is_user);
 
@@ -721,7 +560,7 @@ function _mm_content_get_tree_recurs($r, $params, $parent_is_group, $parent_is_u
       }
     }
 
-    if ((!$params[MM_GET_TREE_BLOCK] || $r->bid == $params[MM_GET_TREE_BLOCK] || $r->bid <= 0) && (!$r->hidden || !$r->level || $params[MM_GET_TREE_FILTER_HIDDEN] || isset($params[MM_GET_TREE_ITERATOR]) || !isset($r->perms) || $r->perms['w'] || $r->perms['a'] || $r->perms['u'] || user_access('view all menus'))) {
+    if ((!$params[MM_GET_TREE_BLOCK] || $r->bid == $params[MM_GET_TREE_BLOCK] || $r->bid <= 0) && (!$r->hidden || !$r->level || $params[MM_GET_TREE_FILTER_HIDDEN] || isset($params[MM_GET_TREE_ITERATOR]) || !isset($r->perms) || (isset($r->perms['w']) && $r->perms['w']) || (isset($r->perms['a']) && $r->perms['a']) || (isset($r->perms['u']) && $r->perms['u']) || user_access('view all menus'))) {
 
       if (!isset($params[MM_GET_TREE_ITERATOR])) $parent = count($rows);
 
@@ -733,17 +572,23 @@ function _mm_content_get_tree_recurs($r, $params, $parent_is_group, $parent_is_u
           $r->state |= MM_GET_TREE_STATE_RECYCLE;
         }
 
-        if (!$r->is_group && isset($r->perms['r']) && !$r->perms['r']) {
-          $r->state |= MM_GET_TREE_STATE_DENIED;
-          $skip_kids = TRUE;
+        if (!$r->is_group) {
+          if (isset($r->perms['r']) && !$r->perms['r']) {
+            $r->state |= MM_GET_TREE_STATE_DENIED;
+            $skip_kids = TRUE;
+          }
+
+          if (strpos($r->default_mode, 'r') === FALSE) {
+            $r->state |= MM_GET_TREE_STATE_NOT_WORLD;
+          }
         }
 
         if ($visible) {
           if (!isset($params[MM_GET_TREE_ITERATOR])) {
             $rows[] = $r;
-            if ($params['once']) return $rows;
+            if (isset($params['once']) && $params['once']) return $rows;
           }
-          else if ($params['once']) return;
+          else if (isset($params['once']) && $params['once']) return;
           else if (($iter_ok = $params[MM_GET_TREE_ITERATOR]->iterate($r)) < 0) {
             $last = FALSE;
             $skip_kids = TRUE;
@@ -754,14 +599,14 @@ function _mm_content_get_tree_recurs($r, $params, $parent_is_group, $parent_is_u
 
       if (!isset($skip_kids) && $params[MM_GET_TREE_DEPTH]) {
         if (isset($params[MM_GET_TREE_ITERATOR])) {
-          $ois_grp = $params[MM_GET_TREE_ITERATOR]->parent_is_group;
-          $ois_user = $params[MM_GET_TREE_ITERATOR]->parent_is_user;
+          $ois_grp = isset($params[MM_GET_TREE_ITERATOR]->parent_is_group) && $params[MM_GET_TREE_ITERATOR]->parent_is_group;
+          $ois_user = isset($params[MM_GET_TREE_ITERATOR]->parent_is_user) && $params[MM_GET_TREE_ITERATOR]->parent_is_user;
           $params[MM_GET_TREE_ITERATOR]->parent_is_group = $r->is_group;
           $params[MM_GET_TREE_ITERATOR]->parent_is_user = $r->is_user;
         }
 
         $params2['found'] = -1;
-        if ($params2['once']) $params2['pprune'] = -1;
+        if (isset($params2['once']) && $params2['once']) $params2['pprune'] = -1;
         $params2['level'] = $params['level'] + 1;
         $params2['parent_level'] = $r->level;
         $kids = _mm_content_get_tree($r->mmtid, $params2);
@@ -799,7 +644,7 @@ function _mm_content_get_tree_recurs($r, $params, $parent_is_group, $parent_is_u
             }
           }
 
-          if (!$params['once'] && is_array($kids)) $rows = array_merge($rows, $kids);
+          if ((!isset($params['once']) || !$params['once']) && is_array($kids)) $rows = array_merge($rows, $kids);
         }
 
         if ($params2['found'] >= 0) $params['found'] = $params2['found'];
@@ -858,14 +703,14 @@ function mm_content_get_cascaded_settings($mmtid = NULL, $name = NULL) {
     if ($r->data_type == 'int') $r->data = (int)$r->data;
 
     if ($r->multiple) {
-      if (!is_array($cascaded[$r->name])) $cascaded[$r->name] = array();
+      if (!isset($cascaded[$r->name]) || !is_array($cascaded[$r->name])) $cascaded[$r->name] = array();
       if ($r->array_key != '') $cascaded[$r->name][$r->array_key] = $r->data;
       else $cascaded[$r->name][] = $r->data;
     }
     else $cascaded[$r->name] = $r->data;
   }
 
-  return isset($name) ? $cascaded[$name] : $cascaded;
+  return isset($name) && isset($cascaded[$name]) ? $cascaded[$name] : $cascaded;
 }
 
 /**
@@ -886,7 +731,7 @@ function mm_content_set_cascaded_settings($mmtid, $settings, $delete = TRUE) {
 
   foreach ($cascaded_settings as $name => $desc)
     if (isset($settings[$name]))
-      if ($desc['multiple']) {
+      if (!empty($desc['multiple'])) {
         foreach ($settings[$name] as $array_key => $data)
           _mm_content_insert_cascaded_setting($mmtid, $name, $desc, $array_key, $data);
       }
@@ -952,7 +797,7 @@ function mm_content_resolve_cascaded_setting($name, $mmtid, &$at, &$parent, $new
   $parent = 0;
   if (!$out) {
     $cascaded_settings = mm_content_get_cascaded_settings();
-    if (!$cascaded_settings[$name]['multiple']) return NULL;
+    if (!isset($cascaded_settings[$name]['multiple']) || !$cascaded_settings[$name]['multiple']) return NULL;
   }
   return $out;
 }
@@ -1177,8 +1022,8 @@ function mm_content_get($options, $return = array(), $limit = 0, $sort = FALSE) 
       $args[":flag_".$n."_flag"] = $flag;
       if (is_null($data)) $wheres[] = "f$n.data IS NULL";
       else {
-        $wheres[] = "f$n.data = :flag_".$n."_data";
-        $args[":flag_".$n."_data"] = $data;
+        $wheres[] = "f$n.data = '%s'";
+        $args[] = $data;
       }
       $n++;
     }
@@ -1190,6 +1035,7 @@ function mm_content_get($options, $return = array(), $limit = 0, $sort = FALSE) 
     if (!is_array($v) || $v) {
       if (is_array($v) && count($v) == 1) $v = $v[0];
 
+      $not_string = !in_array($k, $string_fields);
       $k = strtolower($k);
       if (strchr($k, '.') === FALSE) $k = "t.$k";
       
@@ -1252,7 +1098,7 @@ function mm_content_get($options, $return = array(), $limit = 0, $sort = FALSE) 
     }
   }
 
-  return $single ? $out[0] : $out;
+  return $single && isset($out[0]) ? $out[0] : $out;
 }
 
 /**
@@ -1377,7 +1223,7 @@ function mm_content_user_can_recycle($mmtid, $mode = '', $usr = NULL) {
           // and any of its children should be skipped
           if ($item->name == MM_ENTRY_NAME_RECYCLE) { // the bin exists
             $this->writable = TRUE;                // no nodes: default to writable
-            if ($item->perms['ADMIN'] || $item->perms['w']) $this->readable = TRUE;
+            if (isset($item->perms['ADMIN']) && $item->perms['ADMIN'] || $item->perms['w']) $this->readable = TRUE;
             foreach (mm_content_get_nids_by_mmtid($item->mmtid) as $n) {
               $this->writable = FALSE;             // it's not empty, so not writable
               $node = node_load($n);
@@ -1591,15 +1437,23 @@ function mm_content_get_query($params) {
   global $user;
   static $user_access;
   $defaults = array(
-    MM_GET_TREE_BIAS_ANON      => TRUE,
-    MM_GET_TREE_DEPTH          => 0,
-    MM_GET_TREE_FAKE_READ_BINS => FALSE,
-    MM_GET_TREE_FILTER_BINS    => TRUE,
-    MM_GET_TREE_FILTER_DOTS    => TRUE,
-    MM_GET_TREE_FILTER_GROUPS  => FALSE,
-    MM_GET_TREE_FILTER_NORMAL  => FALSE,
-    MM_GET_TREE_FILTER_USERS   => FALSE,
-    MM_GET_TREE_USER           => $user,
+    MM_GET_TREE_BIAS_ANON        => TRUE,
+    MM_GET_TREE_DEPTH            => 0,
+    MM_GET_TREE_FAKE_READ_BINS   => FALSE,
+    MM_GET_TREE_FILTER_BINS      => TRUE,
+    MM_GET_TREE_FILTER_DOTS      => TRUE,
+    MM_GET_TREE_FILTER_GROUPS    => FALSE,
+    MM_GET_TREE_FILTER_NORMAL    => FALSE,
+    MM_GET_TREE_FILTER_USERS     => FALSE,
+    MM_GET_TREE_INNER_FILTER     => '',
+    MM_GET_TREE_RETURN_BINS      => FALSE,
+    MM_GET_TREE_RETURN_BLOCK     => FALSE,
+    MM_GET_TREE_RETURN_FLAGS     => FALSE,
+    MM_GET_TREE_RETURN_KID_COUNT => FALSE,
+    MM_GET_TREE_RETURN_MTIME     => FALSE,
+    MM_GET_TREE_RETURN_TREE      => FALSE,
+    MM_GET_TREE_USER             => $user,
+    MM_GET_TREE_WHERE            => '',
   );
 
   $params = array_merge($defaults, $params);
@@ -1625,7 +1479,7 @@ function mm_content_get_query($params) {
   if (!$is_node && empty($params[MM_GET_TREE_MMTID])) {
     watchdog('mm', 'mm_content_get_query() called without a node ID or MM tree ID.',
         array(), WATCHDOG_ERROR);
-    if (function_exists('debug') && variable_get('error_level', 0) == 1) debug();
+    if (module_exists('amherst') && function_exists('debug') && variable_get('error_level', 0) == 1) debug();
     return;
   }
 
@@ -1638,10 +1492,15 @@ function mm_content_get_query($params) {
   $uid = $params[MM_GET_TREE_USER]->uid;
 
   $is_admin = $uid == 1;
-  if (!$is_admin && !isset($user_access[$uid])) {
-    foreach (array('administer all menus', 'administer all users', 'administer all groups', 'view all menus') as $access_mode)
-      if ($uid || substr($access_mode, 0, 4) == 'view')
+  if (!isset($user_access[$uid])) {
+    foreach (array('administer all menus', 'administer all users', 'administer all groups', 'view all menus') as $access_mode) {
+      if ($uid || substr($access_mode, 0, 4) == 'view') {
         $user_access[$uid][$access_mode] = user_access($access_mode, $params[MM_GET_TREE_USER]);
+      }
+      else {
+        $user_access[$uid][$access_mode] = FALSE;
+      }
+    }
   }
   $is_admin |= $user_access[$uid]['administer all menus'];
 
@@ -1715,10 +1574,12 @@ function mm_content_get_query($params) {
 
   if ($perms) {
     if ($uid) {
-      $inside_joins .=
-        'LEFT JOIN {mm_tree_access} a ON a.mmtid = i.mmtid ' .
-        'LEFT JOIN {mm_group} g ON a.gid = g.gid ' .
-        'LEFT JOIN {mm_virtual_group} v ON g.vgid = v.vgid ';
+      if (!$is_admin) {
+        $inside_joins .=
+          'LEFT JOIN {mm_tree_access} a ON a.mmtid = i.mmtid ' .
+          'LEFT JOIN {mm_group} g ON g.gid = a.gid ' .
+          "LEFT JOIN {mm_virtual_group} v ON v.vgid = g.vgid AND v.uid = $uid ";
+      }
     }
     else if ($params[MM_GET_TREE_BIAS_ANON]) {
       $anon_group = 'SUM(o.is_group) = 0 AND ';
@@ -1951,25 +1812,32 @@ function mm_content_get_query($params) {
         break;
 
       default:
-        $depth = $params[MM_GET_TREE_DEPTH] * MM_CONTENT_BTOA_CHARS;
+        $depth = mm_query_result('SELECT MAX(depth) FROM {mm_tree_parents} WHERE mmtid = %d', $params[MM_GET_TREE_MMTID]) + $params[MM_GET_TREE_DEPTH] + 1;
         $i =
-          'SELECT p.mmtid AS container, t.mmtid, t.default_mode, t.uid, t.name ' .
+          'SELECT x.container, t.mmtid, t.default_mode, t.uid, t.name ' .
             'FROM (' .
-              'SELECT p0.mmtid ' .
-                'FROM {mm_tree_parents} p0 ' .
-                'INNER JOIN {mm_tree} t ON t.mmtid = p0.mmtid ' .
-              'WHERE p0.parent = ' . $params[MM_GET_TREE_MMTID] . ' ' .
-                'AND LENGTH(t.sort_idx) - (' .
-                  'SELECT LENGTH(sort_idx) ' .
-                    'FROM {mm_tree} ' .
-                    'WHERE mmtid = ' . $params[MM_GET_TREE_MMTID] .
-                ") <= $depth " .
-              'UNION SELECT ' . $params[MM_GET_TREE_MMTID] .
+              'SELECT p0.mmtid AS container, p1.parent AS mmtid ' .
+                'FROM (' .
+                  'SELECT p0.mmtid ' .
+                    'FROM {mm_tree_parents} p0 ' .
+                    'INNER JOIN {mm_tree_parents} p1 ON p1.mmtid = p0.mmtid ' .
+                    'WHERE p0.parent = ' . $params[MM_GET_TREE_MMTID] . ' ' .
+                    'GROUP BY p0.mmtid HAVING MAX(p1.depth) < ' . $depth .
+                ') p0 ' .
+                'INNER JOIN {mm_tree_parents} p1 ON p1.mmtid = p0.mmtid ' .
+              'UNION (' .
+                'SELECT p0.mmtid, p0.mmtid ' .
+                  'FROM {mm_tree_parents} p0 ' .
+                  'INNER JOIN {mm_tree_parents} p1 ON p1.mmtid = p0.mmtid ' .
+                  'WHERE p0.parent = ' . $params[MM_GET_TREE_MMTID] . ' ' .
+                  'GROUP BY p0.mmtid HAVING MAX(p1.depth) < ' . $depth .
+              ') ' .
+              'UNION SELECT ' . $params[MM_GET_TREE_MMTID] . ', parent ' .
+                'FROM {mm_tree_parents} ' .
+                'WHERE mmtid = ' . $params[MM_GET_TREE_MMTID] . ' ' .
+              'UNION SELECT ' . $params[MM_GET_TREE_MMTID] . ', ' . $params[MM_GET_TREE_MMTID] .
             ') AS x ' .
-            'INNER JOIN {mm_tree_parents} p ON p.mmtid = x.mmtid ' .
-            'INNER JOIN {mm_tree} t ON t.mmtid = p.parent OR t.mmtid = x.mmtid ' .
-            'GROUP BY p.mmtid, t.mmtid ' .
-            'ORDER BY NULL';
+            'INNER JOIN {mm_tree} t ON t.mmtid = x.mmtid';
         break;
     }
   }
@@ -2074,6 +1942,7 @@ function mm_content_update_sort_queue_if_affected($parent, $child = NULL) {
  */
 function mm_content_update_sort_queue($parent = NULL, $child = NULL, $all = FALSE) {
   static $queue = array();
+  global $_mm_content_defer_sort_index_update;
 
   if (empty($parent) && !empty($child)) {
     $parent = mm_content_get_parent($child);
@@ -2085,6 +1954,8 @@ function mm_content_update_sort_queue($parent = NULL, $child = NULL, $all = FALS
     else $queue[$parent] = $all;
   }
   else if (count($queue)) {
+    if (!empty($_mm_content_defer_sort_index_update)) return;
+
     $uniq = array_unique($queue);
     if (count($uniq) == 1 && !$uniq[mm_ui_mmlist_key0($uniq)]) {
       mm_content_update_sort(array_keys($queue), FALSE);
@@ -2109,7 +1980,7 @@ function mm_content_update_sort_queue($parent = NULL, $child = NULL, $all = FALS
  */
 function mm_content_update_sort($mmtid = 1, $all = TRUE) {
   if ($all) {
-    if (!function_exists(__mm_content_update_sort_all)) {
+    if (!function_exists('__mm_content_update_sort_all')) {
       function __mm_content_update_sort_all($sort_idx, $mmtid) {
         $order = 0;
         $q = db_query("SELECT mmtid FROM {mm_tree} WHERE parent = %d ORDER BY IF(hidden, 1, IF(name = '%s', 2, 0)), weight, name", $mmtid, MM_ENTRY_NAME_RECYCLE);
@@ -2248,7 +2119,7 @@ function mm_content_empty_all_bins() {
     $bins = $nodes = array();
     while ($r = db_fetch_object($result)) {
       if ($r->type == 'node') {
-        if (!$nodes[$r->id]) {
+        if (empty($nodes[$r->id])) {
           watchdog('mm', "Automatically emptying nid=$r->id from recycle bin");
           node_delete($r->id);
           // It's remotely possible for a node to be left over in mm_recycle,
@@ -2353,7 +2224,7 @@ function mm_content_user_can_node($node, $mode = '', $account = NULL) {
     // If the user does not have write permission, consider the appearance schedule
     if (!$perms['w'] && !mm_content_node_access('update', $node, $account)) {
       $scheduled = (!isset($node->publish_on) || $node->publish_on == 0 || $node->publish_on <= time()) && (!isset($node->unpublish_on) || $node->unpublish_on == 0 || time() < $node->unpublish_on);
-      $perms['r'] &= $scheduled;
+      $perms['r'] = $perms['r'] && $scheduled;  // must use logical && to preserve boolean type
     }
     $_mmcucn_cache[$nid][$uid] = $perms;
   }
@@ -2602,15 +2473,17 @@ function mm_content_uid2name($uid, $order = 'lfmu', $usr = NULL, &$hover = NULL)
         }
         else {
           $middle = '';
-          if (drupal_strlen($usr->middlename)) $middle = ' ' . $usr->middlename[0] . '.';
+          if (isset($usr->middlename) && drupal_strlen($usr->middlename)) {
+            $middle = ' ' . $usr->middlename[0] . '.';
+          }
           $cache[$uid] = (object) array(
-            'pref_fml' => $usr->pref_fml,
-            'pref_lfm' => $usr->pref_lfm,
-            'last'     => $usr->lastname,
-            'first'    => $usr->firstname,
-            'name'     => $usr->name,
+            'pref_fml' => isset($usr->pref_fml) ? $usr->pref_fml : '',
+            'pref_lfm' => isset($usr->pref_lfm) ? $usr->pref_lfm : '',
+            'last'     => isset($usr->lastname) ? $usr->lastname : '',
+            'first'    => isset($usr->firstname) ? $usr->firstname : '',
+            'name'     => isset($usr->name) ? $usr->name : '',
             'middle'   => $middle,
-            'hover'    => $usr->hover,
+            'hover'    => isset($usr->hover) ? $usr->hover : '',
             'disabled' => $disabled ? ' ' . t('(inactive)') : '',
           );
         }
@@ -2619,20 +2492,20 @@ function mm_content_uid2name($uid, $order = 'lfmu', $usr = NULL, &$hover = NULL)
   }
 
   if (($u = $cache[$uid]) !== FALSE) {
-    $hover = $u->hover;
+    $hover = isset($u->hover) ? $u->hover : '';
 
     $uname_only = FALSE;
     $fml = drupal_substr($order, 0, 3) == 'fml';
     if ($fml ? !empty($u->pref_fml) : !empty($u->pref_lfm)) {
       $out = $fml ? $u->pref_fml : $u->pref_lfm;
     }
-    else if ($u->last && $u->first) {
+    else if (isset($u->last) && $u->last && isset($u->first) && $u->first) {
       $out = $fml ? "$u->first$u->middle $u->last" : "$u->last, $u->first$u->middle";
     }
-    else if ($u->last) {
+    else if (isset($u->last) && $u->last) {
       $out = $u->last;
     }
-    else if ($u->first) {
+    else if (isset($u->first) && $u->first) {
       $out = $u->first;
     }
     else {
@@ -2640,10 +2513,10 @@ function mm_content_uid2name($uid, $order = 'lfmu', $usr = NULL, &$hover = NULL)
       $uname_only = TRUE;
     }
 
-    if ($order[3] == 'u' && $u->name != '' && !$uname_only) {
+    if (isset($order[3]) && $order[3] == 'u' && $u->name != '' && !$uname_only) {
       $out .= " ($u->name)";
     }
-    $out .= $u->disabled;
+    $out .= isset($u->disabled) ? $u->disabled : '';
 
     return $out;
   }
@@ -2699,7 +2572,7 @@ function mm_content_is_group($mmtid) {
  */
 function mm_content_is_vgroup($mmtid) {
   $list = mm_content_get_parents_with_self($mmtid);
-  return count($list) >= 2 && ($tree = mm_content_get($list[2])) && $tree->name == MM_ENTRY_NAME_VIRTUAL_GROUP;
+  return count($list) >= 3 && ($tree = mm_content_get($list[2])) && $tree->name == MM_ENTRY_NAME_VIRTUAL_GROUP;
 }
 
 /**
@@ -2876,12 +2749,12 @@ function mm_content_get_blocks_at_mmtid($mmtids, &$block_id = 0, $multiple = FAL
 
   if (count($direct) || count($by_parent))
     foreach (array_reverse($mmtids) as $t)
-      if ($direct[$t]) {
+      if (isset($direct[$t]) && $direct[$t]) {
         if (!$block_id) $block_id = $direct[$t];
         if ($multiple) return array($direct[$t]);
         return $t;
       }
-      else if (is_array($by_parent[$t])) {
+      else if (isset($by_parent[$t]) && is_array($by_parent[$t])) {
         if (!$block_id) $block_id = $by_parent[$t][0]['bid'];
         if ($multiple) return $by_parent[$t];
         return $by_parent[$t][0]['mmtid'];
@@ -2897,7 +2770,8 @@ function mm_content_get_blocks_at_mmtid($mmtids, &$block_id = 0, $multiple = FAL
  *   The tree ID
  */
 function mm_content_groups_mmtid() {
-  if (!($mmtid = variable_get('mm_content_groups_mmtid', 0))) {
+  $mmtid = variable_get('mm_content_groups_mmtid', 0);
+  if (empty($mmtid)) {
     $tree = mm_content_get(array('parent' => 1, 'name' => MM_ENTRY_NAME_GROUPS));
     variable_set('mm_content_groups_mmtid', $mmtid = $tree[0]->mmtid);
   }
@@ -2912,7 +2786,8 @@ function mm_content_groups_mmtid() {
  *   The tree ID
  */
 function mm_content_users_mmtid() {
-  if (!($mmtid = variable_get('mm_content_users_mmtid', 0))) {
+  $mmtid = variable_get('mm_content_users_mmtid', 0);
+  if (empty($mmtid)) {
     $tree = mm_content_get(array('parent' => 1, 'name' => MM_ENTRY_NAME_USERS));
     variable_set('mm_content_users_mmtid', $mmtid = $tree[0]->mmtid);
   }
@@ -3038,14 +2913,14 @@ function mm_content_get_uids_in_group($mmtids, $uids = NULL, $normal = TRUE, $vi
     while ($row = db_fetch_object($query)) {
       $out[$row->uid][] = $row->gid;
     }
-    if ($uids_single) return $out[$uids[0]];
+    if ($uids_single) return isset($out[$uids[0]]) ? $out[$uids[0]] : array();
     return $out;
   }
 
   while ($row = db_fetch_object($query)) {
     $out[$row->gid][] = $row->uid;
   }
-  if ($mmtids_single) return $out[$mmtids[0]];
+  if ($mmtids_single) return isset($out[$mmtids[0]]) ? $out[$mmtids[0]] : array();
   return $out;
 }
 
@@ -3093,9 +2968,9 @@ function mm_content_get_users_in_group($mmtid, $sep = NULL, $halt = FALSE, $limi
         '(SELECT %s FROM '.
           '(SELECT u.uid, u.name FROM '.
             "(SELECT * FROM {mm_group} WHERE gid $mmtid_match AND uid > 0) AS g ".
-          'INNER JOIN {users} u ON u.uid = g.uid) AS u)) x ORDER BY x.name';
+          'INNER JOIN {users} u ON u.uid = g.uid) AS u)) x';
 
-  $query = sprintf($qs, '*', 'u.uid, u.name', 'u.uid, u.name');
+  $query = sprintf($qs .' ORDER BY x.name', '*', 'u.uid, u.name', 'u.uid, u.name');
   $countquery = sprintf($qs, 'SUM(c)', 'COUNT(DISTINCT u.uid) AS c', 'COUNT(DISTINCT u.uid) AS c', '');
 
   mm_module_invoke_all_array('mm_get_users_in_group_alter', array($mmtids, &$query, &$countquery));
@@ -3137,12 +3012,12 @@ function mm_content_get_users_in_group($mmtid, $sep = NULL, $halt = FALSE, $limi
   }
 
   if (!isset($sep)) {
-    if ($overflow) $users[''] = '...';
+    if (isset($overflow) && $overflow) $users[''] = '...';
 
     return $users;
   }
 
-  return implode($sep, $users) . ($overflow ? '...' : '');
+  return implode($sep, $users) . (isset($overflow) && $overflow ? '...' : '');
 }
 
 /**
@@ -3155,7 +3030,7 @@ function mm_content_get_users_in_group($mmtid, $sep = NULL, $halt = FALSE, $limi
 function mm_content_add_user($account) {
   global $user;
 
-  if ($account->user_mmtid || !variable_get('mm_use_user_dir', TRUE)) return;
+  if ((isset($account->user_mmtid) && $account->user_mmtid) || !variable_get('mm_use_user_dir', TRUE)) return;
 
   $users_mmtid = mm_content_users_mmtid();
   $default_tree = mm_content_get(array('name' => MM_ENTRY_NAME_DEFAULT_USER, 'parent' => $users_mmtid));
@@ -3539,7 +3414,7 @@ function mm_content_copy($src_mmtid, $dest_mmtid, $options) {
 
   mm_content_clear_caches($dest_mmtid);
   watchdog('mm', "Copied mmtid=$src_mmtid to parent=$dest_mmtid!recur, new name=%name (%alias)",
-      array('!recur' => $copy_recur ? t(' recursively') : '', '%name' => $iter->options[MM_COPY_NAME], '%alias' => $iter->options[MM_COPY_ALIAS]));
+      array('!recur' => $iter->options[MM_COPY_RECUR] ? t(' recursively') : '', '%name' => $iter->options[MM_COPY_NAME], '%alias' => $iter->options[MM_COPY_ALIAS]));
 
   return $iter->output();
 }
@@ -4124,7 +3999,7 @@ function mm_content_update_quick($parameters, $where, $parent = NULL, $revision 
       $fields[] = $field;
       $placeholders[] = db_type_placeholder($info['type']);
       $values[] = $parameters[$field];
-      if ($special && $field != 'sort_idx_dirty') {
+      if (isset($special) && $special && $field != 'sort_idx_dirty') {
         $special_conditions[] = "$field <> " . db_type_placeholder($schema['fields'][$field]['type']);
         $special_values[] = $parameters[$field];
       }
@@ -4160,8 +4035,12 @@ function mm_content_update_quick($parameters, $where, $parent = NULL, $revision 
       mm_content_write_revision($where['mmtid']);
     }
 
-    if ($special && (!empty($parent) || isset($where['mmtid']))) {
-      mm_content_update_sort_queue($parent, $where['mmtid']);
+    if (isset($special) && $special) {
+      if (empty($parent)) $parent = NULL;
+      $child = !isset($where['mmtid']) ? NULL : $where['mmtid'];
+      if (!is_null($parent) || !is_null($child)) {
+        mm_content_update_sort_queue($parent, $child);
+      }
     }
   }
 }
@@ -4505,7 +4384,7 @@ function mm_content_node_access($op, $node, $account = NULL) {
       // being called recursively from node_access() call, below
       if ($recursive) return;
 
-      if ($node->uid == $account->uid) {
+      if (isset($node->uid) && $node->uid == $account->uid) {
         // regular owner
         $owns = TRUE;
       }
@@ -4882,9 +4761,9 @@ function mm_content_get_recycle_autodel_time($when, $nid, $mmtids, $what) {
  *   A node object
  */
 function mm_content_set_node_perms($node) {
-  if ($node->mm_skip_perms) return;
-  $everyone = $node->mm_others_w_force || user_access('administer all menus');
-  if ($node->others_w && $everyone) {
+  if (isset($node->mm_skip_perms) && $node->mm_skip_perms) return;
+  $everyone = (isset($node->mm_others_w_force) && $node->mm_others_w_force) || user_access('administer all menus');
+  if (isset($node->others_w) && $node->others_w && $everyone) {
     _mm_ui_delete_node_groups($node, TRUE);
 
     db_query('INSERT INTO {mm_node_write} (nid, gid) VALUES(%d, %d)', $node->nid, 0);
@@ -4892,7 +4771,7 @@ function mm_content_set_node_perms($node) {
   else {
     _mm_ui_delete_node_groups($node, $everyone);
 
-    if (is_array($node->groups_w)) {
+    if (isset($node->groups_w) && is_array($node->groups_w)) {
       foreach ($node->groups_w as $gid => $name) {
         if ($gid) {
           db_query('INSERT INTO {mm_node_write} (nid, gid) VALUES(%d, %d)', $node->nid, $gid);
@@ -4900,7 +4779,7 @@ function mm_content_set_node_perms($node) {
       }
     }
 
-    if (is_array($node->users_w)) {
+    if (isset($node->users_w) && is_array($node->users_w)) {
       $adhoc_gid = '';
       foreach ($node->users_w as $uid => $name) {
         if (!empty($uid)) {
@@ -5014,9 +4893,9 @@ function _mm_content_insert_cascaded_setting($mmtid, $name, $desc, $array_key, $
   if ($desc['data_type'] == 'int') {
     if (($data = intval($data)) == -1) return;
   }
-  else if ($desc['not_empty'] && empty($data)) return;
+  else if (isset($desc['not_empty']) && $desc['not_empty'] && empty($data)) return;
 
-  if (!$desc['use_keys']) $array_key = '';
+  if (!isset($desc['use_keys']) || !$desc['use_keys']) $array_key = '';
 
-  db_query("INSERT INTO {mm_cascaded_settings} (mmtid, name, data_type, multiple, array_key, data) VALUES (%d, '%s', '%s', %d, '%s', '%s')", $mmtid, $name, $desc['data_type'], $desc['multiple'], $array_key, $data);
+  db_query("INSERT INTO {mm_cascaded_settings} (mmtid, name, data_type, multiple, array_key, data) VALUES (%d, '%s', '%s', %d, '%s', '%s')", $mmtid, $name, $desc['data_type'], !empty($desc['multiple']), $array_key, $data);
 }

@@ -1,5 +1,5 @@
 <?php
-// $Id: mm_schedule_theme.inc 4225 2010-07-02 18:35:51Z dan $
+// $Id: mm_schedule_theme.inc 5387 2011-05-03 21:09:51Z dan $
 
 /**
  * @file
@@ -167,7 +167,7 @@ function _mm_schedule_theme_setup_events($view, $ical = FALSE) {
   $min_time = _mm_schedule_date_timestamp_get($view->date_info->min_date);
   $max_time = _mm_schedule_date_timestamp_get($view->date_info->max_date) - 59;
 
-  if ($node->mycalendar) {
+  if (!empty($node->mycalendar)) {
     $week_day = array_flip(array_keys(academics_day_list()));
 
     $start_date = date_format($view->date_info->min_date, DATE_FORMAT_DATE);
@@ -383,6 +383,9 @@ function _mm_schedule_theme_setup_events_external($view, $ical = FALSE) {
       }
     }
 
+    if (!isset($item->type))
+      $item->type = $item->node_mm_node2tree_type;
+
     $view->items[] = $item;
   }
 
@@ -595,8 +598,10 @@ function theme_mm_schedule($hours, $days, $events, $options = array()) {
 
   // Remove any bad entries and expand the range of hours, if needed
   $all_day_row = array();
-  foreach ($events as $index => $event)
-    if ($event->all_day) {
+  foreach ($events as $index => $event) {
+    if (!isset($event->group)) $events[$index]->group = 0;
+
+    if (!empty($event->all_day)) {
       if (!isset($all_day_row[$event->group])) $all_day_row[$event->group] = count($all_day_row);
     }
     else if (empty($event->start_mins) && !is_numeric($event->start_mins) && $event->start_mins !== '0' || $event->duration <= 0) {
@@ -606,6 +611,7 @@ function theme_mm_schedule($hours, $days, $events, $options = array()) {
       if ($event->duration > 24 * 60) $event->duration = 24 * 60;
       _mm_schedule_theme_date_compare($event->start_mins, $event->start_mins + $event->duration, $granularity, $min, $max);
     }
+  }
 
   $all_day_rows = count($all_day_row);
 
@@ -656,12 +662,12 @@ function theme_mm_schedule($hours, $days, $events, $options = array()) {
   foreach ($events as $event) {
     $day = $event->weekday;
     $start = $event->start_mins;
-    $row = $event->all_day ? $all_day_row[$event->group] : ($start - $min) / $granularity + $all_day_rows;
-    $span = $event->all_day ? 1 : $event->duration / $granularity;
+    $row = !empty($event->all_day) ? $all_day_row[$event->group] : ($start - $min) / $granularity + $all_day_rows;
+    $span = !empty($event->all_day) ? 1 : $event->duration / $granularity;
 
     // Find this event's conflicts
     $col = 0;
-    while (is_array($cols[$day][$col]) && ($in_use = array_intersect_key(array_fill($row, $span, TRUE), $cols[$day][$col]))) {
+    while (isset($cols[$day][$col]) && ($in_use = array_intersect_key(array_fill($row, $span, TRUE), $cols[$day][$col]))) {
       if (!empty($options['show_conflicts'])) {
         $conflict += $in_use;
       }
@@ -669,7 +675,7 @@ function theme_mm_schedule($hours, $days, $events, $options = array()) {
     }
 
     // Add a new column, if needed
-    if (!is_array($cols[$day][$col])) $cols[$day][$col] = array();
+    if (!isset($cols[$day][$col])) $cols[$day][$col] = array();
 
     // Figure out what color to make the cell
     if (isset($colors[$event->group])) $color = $colors[$event->group];
@@ -681,7 +687,7 @@ function theme_mm_schedule($hours, $days, $events, $options = array()) {
     // Store the data and mark any spanned cells as in use, for later conflict
     // detection
     $class = 'schedule-items schedule-color-' . $color;
-    if ($event->all_day && $row == $all_day_rows - 1) $class .= ' schedule-all-day';
+    if (!empty($event->all_day) && $row == $all_day_rows - 1) $class .= ' schedule-all-day';
     $cols[$day][$col][$row] = array('class' => $class, 'data' => $event->body, 'rowspan' => $span, 'colspan' => 1);
     while (--$span > 0)
       $cols[$day][$col][$row + $span] = 1;
@@ -694,7 +700,7 @@ function theme_mm_schedule($hours, $days, $events, $options = array()) {
         if (is_array($row_data) && $col < count($day_col) - 1) {
           $auto_span_col = $col;
           $auto_compare = array_fill($row, $row_data['rowspan'], TRUE);
-          while (is_array($day_col[++$auto_span_col]) && !array_intersect_key($auto_compare, $day_col[$auto_span_col])) {
+          while (isset($day_col[++$auto_span_col]) && !array_intersect_key($auto_compare, $day_col[$auto_span_col])) {
             $cols[$day][$col][$row]['colspan']++;
             $cols[$day][$auto_span_col] += $auto_compare;
           }
@@ -775,7 +781,7 @@ function theme_mm_schedule($hours, $days, $events, $options = array()) {
         }
         else if ($row_data === FALSE) {
           $find_link = '&nbsp;';
-          if ($options['editable'] && !$in_use[$day][$row] && $col == count($day_col) - 1 && !empty($cols['times'][0][$row]['data']) && is_object($options['schedule']) && $cols['times'][0][$row]['hour'] !== FALSE) {
+          if (!empty($options['editable']) && empty($in_use[$day][$row]) && $col == count($day_col) - 1 && !empty($cols['times'][0][$row]['data']) && is_object($options['schedule']) && $cols['times'][0][$row]['hour'] !== FALSE) {
             $find_link = '<div>' . _academics_schedule_thickbox_link(t('find'), 'course_scheduler/daytime/' . join('/', array($options['schedule']->schedid, $day, ($row - $all_day_rows) * $granularity + $min)), t('Find courses meeting at @time on @day', array('@time' => $cols['times'][0][$row]['hour'], '@day' => $days[$day]))) . '</div>';
           }
           $class = 'schedule-empty' . $major_vdiv;
@@ -786,7 +792,7 @@ function theme_mm_schedule($hours, $days, $events, $options = array()) {
       }
     }
 
-    $class = $conflict[$row] ? 'schedule-conflict' : 'schedule-filler';
+    $class = !empty($conflict[$row]) ? 'schedule-conflict' : 'schedule-filler';
     if ($row == $all_day_rows - 1) $class .= ' schedule-all-day';
     $tbody .= '<td class="' . $class . ' schedule-major-vdiv">&nbsp;</td>';
     $tbody .= '</tr>';

@@ -1,12 +1,10 @@
 <?php
-// $Id: mm_query.inc 4770 2010-11-10 22:17:37Z dan $
+// $Id: mm_query.inc 5187 2011-03-21 18:49:44Z dan $
 
 /**
  * @file
  * Cached data retrieval functions
  */
-
-define('MM_QUERY_PAGE_SIZE', 50);
 
 /**
  * Classes for mm_query
@@ -19,6 +17,9 @@ define('MM_QUERY_PAGE_SIZE', 50);
  * this way, multiple callers can read different parts of the data cache for a
  * given statement simultaneously.
  */
+
+require_once('mm_constants.inc');
+
 class mmqIterator {
   private $count, $cache;
 

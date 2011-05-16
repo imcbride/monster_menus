@@ -1,5 +1,5 @@
 <?php
-// $Id: mm_dependencies.inc 4965 2011-01-26 19:22:36Z dan $
+// $Id: mm_dependencies.inc 5163 2011-03-17 16:54:12Z vquinn $
 
 function mm_dep_add_libs($lib_type) {
   $dep_path = drupal_get_path('module', 'monster_menus') . '/dependencies/';
@@ -39,6 +39,11 @@ function mm_dep_add_libs($lib_type) {
     case 'xregexp':
       // used in monster_menus/mm_static.inc
       drupal_add_js($dep_path . 'xregexp.js');
+      return;
+
+    case 'jquery.cycle':
+      // used in themes/default/node-featured_content_slider.tpl.php
+      drupal_add_js($dep_path . 'jquery.cycle.all.min.js');
       return;
   }
   die("mm_dep_add_libs() called with unknown parameter '$lib_type'");

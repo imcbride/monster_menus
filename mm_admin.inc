@@ -1,5 +1,5 @@
 <?php
-// $Id: mm_admin.inc 5034 2011-02-15 19:56:50Z jreese $
+// $Id: mm_admin.inc 5308 2011-04-13 20:28:50Z dan $
 
 /**
  * @file
@@ -87,7 +87,7 @@ function mm_admin_menu() {
     'access callback' => '_mm_menu_access_all_admin');
 
   // Administer->Monster Menus->Browse
-  $items['admin/mm/browse'] = $base + array(
+  $items['admin/mm/browse'] = array(
     'title' => 'Browse tree',
     'type' => MENU_NORMAL_ITEM,
     'access callback' => '_mm_menu_access_any_admin');
@@ -242,14 +242,14 @@ function mm_admin_config() {
       $form['mm_node']['comments']['mm_comments_readable_labels'][$i]['perm'] = array(
         '#type' => 'textfield',
         '#prefix' => '<tr><td>',
-        '#default_value' => $label['perm'],
+        '#default_value' => isset($label['perm']) ? $label['perm'] : '',
         '#size' => 30,
         '#suffix' => '</td><td>',
       );
       $form['mm_node']['comments']['mm_comments_readable_labels'][$i]['desc'] = array(
         '#type' => 'textfield',
         '#suffix' => '</td></tr>',
-        '#default_value' => $label['desc'],
+        '#default_value' => isset($label['desc']) ? $label['desc'] : '',
         '#size' => 30,
       );
       $i++;
@@ -769,12 +769,7 @@ function mm_admin_validate_sort_index($fix = FALSE, $output_mode = 'message') {
 
   $parents = array();
   $skip_bad = '';
-  $q = db_query(mm_content_get_query(array(
-    MM_GET_TREE_MMTID => 1,
-    MM_GET_TREE_DEPTH => -1,
-    MM_GET_TREE_RETURN_TREE => TRUE,
-    MM_GET_TREE_SORT => TRUE,
-  )) . ', t.mmtid');
+  $q = db_query("SELECT t.* FROM (SELECT %d AS mmtid UNION SELECT p.mmtid FROM {mm_tree_parents} p WHERE p.parent = %d) x INNER JOIN {mm_tree} t ON t.mmtid = x.mmtid ORDER BY sort_idx", 1, 1);
   while ($r = db_fetch_object($q)) {
     if ($r->sort_idx_dirty) {
       $skip_bad = $r->sort_idx;
@@ -787,7 +782,7 @@ function mm_admin_validate_sort_index($fix = FALSE, $output_mode = 'message') {
       $is_bad = FALSE;
       if ($r->parent == $prev->mmtid || isset($sibling) && $r->parent == $sibling->mmtid) {
         // Going deeper in tree
-        $parents[] = $parent;
+        $parents[] = isset($parent) ? $parent : FALSE;
         $parent = $r->parent == $prev->mmtid ? $prev : $sibling;
         $sibling = NULL;
       }
@@ -929,26 +924,37 @@ function mm_admin_reassign_content_submit($form, &$form_state) {
   $new = user_load(array('name' => $form_state['values']['new_user']));
   $exclude_where = '';
   $args = array($old->uid);
-  if (empty($form_state['values']["migrate_user_content"])) {
+  if (empty($form_state['values']['migrate_user_content']) && !empty($old->user_mmtid)) {
     $mmtids = array();
-    $result = db_query("SELECT DISTINCT mmtid FROM {mm_tree_parents} WHERE parent = %d", $old->user_mmtid);
+    $result = db_query('SELECT DISTINCT mmtid FROM {mm_tree_parents} WHERE parent = %d', $old->user_mmtid);
     $mmtids[] = $old->user_mmtid;
     while ($item = db_fetch_object($result)) {
       $mmtids[] = $item->mmtid;
     }
-    $exclude_where = " AND mmtid NOT IN (" . db_placeholders($mmtids) . ")";
+    $exclude_where = ' AND mmtid NOT IN (' . db_placeholders($mmtids) . ')';
+    $args = array_merge($args, $mmtids);
   }
-  $args += $mmtids;
-  $result = db_query("SELECT mmtid FROM {mm_tree} WHERE uid = %d" . $exclude_where, $args);
+
+  $result = db_query('SELECT mmtid FROM {mm_tree} WHERE uid = %d' . $exclude_where, $args);
   $i = 0;
   while ($item = db_fetch_object($result)) {
-    mm_content_update_quick(array('uid' => $new->uid), array('mmtid' => $item->mmtid), NULL, TRUE);
+    mm_content_update_quick(array('uid' => $new->uid), array('mmtid' => $item->mmtid));
     $i++;
   }
-  drupal_set_message(t('Groups and pages that have switched users: @count', array('@count' => $i)));
+  drupal_set_message(t('Groups and pages that have switched owners: @count', array('@count' => $i)));
+
   array_unshift($args, $new->uid);
-  db_query("UPDATE {node} n, {mm_node2tree} m SET n.uid = '%d' WHERE n.uid = %d AND n.nid = m.nid" . $exclude_where, $args);
+  db_query('UPDATE {node} n, {mm_node2tree} m SET n.uid = %d WHERE n.uid = %d AND n.nid = m.nid' . $exclude_where, $args);
   drupal_set_message(t('Nodes that have switched users: @count', array('@count' => db_affected_rows())));
-  db_query("DELETE FROM {mm_virtual_group} WHERE uid = %d", $old->uid);
+
+  db_query('DELETE FROM {mm_group} WHERE uid = %d', $old->uid);
   drupal_set_message(t('Number of groups the user has been removed from: @count', array('@count' => db_affected_rows())));
+
+  $vgroups = '';
+  foreach (mm_content_get_uids_in_group(NULL, $old->uid, FALSE, TRUE, FALSE) as $gid) {
+    $vgroups .= '<br />' . l(mm_content_get_name($gid), "mm/$gid");
+  }
+  if ($vgroups) {
+    drupal_set_message(t('The user is still a member of these virtual group(s):' . $vgroups));
+  }
 }

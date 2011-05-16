@@ -1,5 +1,5 @@
 <?php
-// $Id: mm_ui_node_reorder.inc 4216 2010-06-25 18:36:37Z dan $
+// $Id: mm_ui_node_reorder.inc 5387 2011-05-03 21:09:51Z dan $
 
 /**
  * @file
@@ -94,7 +94,7 @@ function mm_ui_node_reorder_submit($form, &$form_state) {
     }
   }
   // Make sure the page draws with the new order
-  mm_content_clear_caches($parent);
+  mm_content_clear_caches();
   if ($form_state['clicked_button']['#id'] == 'edit-reorder-normal') {
     drupal_set_message(t('Custom ordering has been removed.'));
   }

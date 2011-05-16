@@ -1,5 +1,5 @@
 <?php
-// $Id: mm_menu.inc 4953 2011-01-24 21:55:03Z dan $
+// $Id: mm_menu.inc 5277 2011-04-05 18:49:19Z dan $
 
 /**
  * @file
@@ -157,7 +157,8 @@ function _mm_menu_active_item($path = NULL) {
       }
     }
     else if ($arg[0] == 'mm') {
-      if ($arg[2] == 'node' && is_numeric($arg[3]) && ($found_nid = mm_query_result("SELECT nid FROM {node} WHERE nid = %d", $arg[3]))) {
+      $resolved = FALSE;
+      if (isset($arg[2]) && $arg[2] == 'node' && isset($arg[3]) && is_numeric($arg[3]) && ($found_nid = mm_query_result('SELECT nid FROM {node} WHERE nid = %d', $arg[3]))) {
         if ($found_nid == $arg[3]) {
           $resolved = TRUE;
           if (_mm_resolve_archive($arg[1]) && !$path) {

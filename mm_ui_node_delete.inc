@@ -1,5 +1,5 @@
 <?php
-// $Id: mm_ui_node_delete.inc 4216 2010-06-25 18:36:37Z dan $
+// $Id: mm_ui_node_delete.inc 5387 2011-05-03 21:09:51Z dan $
 
 /**
  * @file
@@ -69,7 +69,7 @@ function mm_ui_node_delete_confirm($form_state, $mmtid, $node) {
     $cancel = $mmtid ? mm_content_get_mmtid_url($mmtid) : 'node/'. $node->nid;
     if (!empty($_REQUEST['destination'])) {
       extract(parse_url(urldecode($_REQUEST['destination'])));
-      $cancel = array('path' => $path, 'query' => $query, 'fragment' => $fragment);
+      $cancel = array('path' => $path, 'query' => empty($query) ? '' : $query, 'fragment' => empty($fragment) ? '' : $fragment);
     }
 
     return confirm_form($form, $msg_short, $cancel, $msg, t('Delete'), t('Cancel'));

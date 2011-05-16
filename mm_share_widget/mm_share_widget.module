@@ -1,5 +1,5 @@
 <?php
-// $Id: mm_share_widget.module 4216 2010-06-25 18:36:37Z dan $
+// $Id: mm_share_widget.module 5409 2011-05-11 19:54:14Z dan $
 
 /**
  * @file
@@ -46,12 +46,12 @@ function mm_share_widget_nodeapi(&$node, $op, $a3 = NULL, $a4 = NULL) {
       break;
 
     case 'update':
-      if (!$node->revision) {
+      if (empty($node->revision)) {
         db_query('DELETE FROM {mm_share_widget} WHERE vid = %d', $node->vid);
       }
       // intentionally fall through
     case 'insert':
-      if (is_array($node->share_links))
+      if (isset($node->share_links) && is_array($node->share_links))
         foreach (array_values($node->share_links) as $share_id)
           if ($share_id) db_query('INSERT INTO {mm_share_widget} (nid, vid, share_id) VALUES(%d, %d, %d)', $node->nid, $node->vid, $share_id);
       break;
@@ -82,7 +82,7 @@ function mm_share_widget_form_alter(&$form, $form_state, $form_id) {
         $share_checks[$share->share_id] = t('Show the %name link', array('%name' => $share->name));
       }
 
-      if ($node->nid) $share_values = $node->share_links;
+      if (!empty($node->nid)) $share_values = $node->share_links;
       else {
         mm_parse_args($mmtids, $oarg_list, $this_mmtid);
         $share_values = array();
@@ -102,13 +102,12 @@ function mm_share_widget_form_alter(&$form, $form_state, $form_id) {
   }
   else if ($form_id == 'mm_ui_content_edit') {
     if (!isset($form['is_group'])) {
-
       $form['settings_appearance']['new_nodes']['share_default'] = array(
         '#tree' => TRUE,
       );
 
       $settings = isset($form['is_new']) ? array() : mm_content_get_cascaded_settings($form['path']['#value']);
-      foreach (share_get_widgets('link', $node->type, 'mm_share_widget') as $share) {
+      foreach (share_get_widgets('link', NULL, 'mm_share_widget') as $share) {
         $share = share_load($share->share_id);
         $form['settings_appearance']['new_nodes']['share_default'][$share->share_id] = array(
           '#type' => 'select',
@@ -159,13 +158,13 @@ function mm_share_widget_share($op, $share) {
  */
 function mm_share_widget_share_render($op, $share, $node = NULL) {
   drupal_add_js(
-    'Drupal.behaviors.mmShareWidgetRender = function(context) {                
+    'Drupal.behaviors.mmShareWidgetRender = function(context) {
         $(".service-links a[rel=nofollow]:not(.service-links-mm-share-render-processed)", context)
           .addClass("service-links-mm-share-render-processed")
           .click(function() {
             $("#mm_share_results")
               .load("' . url('sharethis/process') . '", {url: this.href});
-            });        
+            });
       };', 'inline');
   return share_widget_share_render($op, $share, $node);
 }

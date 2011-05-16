@@ -1,26 +1,31 @@
 <?php
-// $Id: monster_menus.install 5017 2011-02-09 20:40:29Z dan $
+// $Id: monster_menus.install 5346 2011-04-21 19:52:17Z dan $
 
 /**
  * @file
  * Installation routines for Monster Menus
  */
 
+require_once 'mm_constants.inc';
+
 /**
  * Implementation of hook_install()
  */
 function monster_menus_install() {
-  // If not in 'safe mode', increase the maximum execution time:
-  if (!ini_get('safe_mode')) {
-    set_time_limit(600);
-  }
-
   // Make sure MM's hooks run later than all others. This allows various form
   // element overrides to work.
   db_query("UPDATE {system} SET weight = '100' WHERE filename LIKE '%/monster_menus.module'");
 
   drupal_install_schema('monster_menus');
 
+  // MM uses drupal_get_schema() and drupal_write_record(), neither of which
+  // is completely aware of MM, at this point during the install. (D7 fixes this
+  // bug.) Therefore, do this hack:
+  register_shutdown_function('drupal_get_schema', NULL, TRUE);
+  register_shutdown_function('_monster_menus_install_data');
+}
+
+function _monster_menus_install_data() {
   db_query("INSERT INTO `{mm_tree}` (
    `mmtid`, `name`, `alias`, `parent`,`uid`,`default_mode`, `theme`, hidden) VALUES
       (1,  '[top]',     '',       0,     1,     'r',           '',     0),
@@ -32,19 +37,21 @@ function monster_menus_install() {
       (7,  'Home',      '',       1,     1,     'r',           '',     0),
       (8,  '.Disabled', '',       4,     1,     '',            '',     0),
       (9,  'Error',     'error',  7,     1,     'r',           '',     1),
-      (10, 'My Portal', 'portal', 5,     1,     '',            '',     0),
-      (11, 'Upper left picture','default-image',7,1,'r',       '',     0),
-      (12, 'Not Found', 'not-found',7,   1,     'r',           '',     1),
-      (13, 'Authorization Required','denied',7,1,'r',          '',     1),
-      (14, 'Portal Pages','portal-pages',7,1,   'r',           '',     1),
-      (15, '.Applicants','',      4,     1,     'r',           '',     0)
-      ");
+      (10, 'Upper left picture','default-image',7,1,'r',       '',     0),
+      (11, 'Not Found', 'not-found',7,   1,     'r',           '',     1),
+      (12, 'Authorization Required','denied',7,1,'r',          '',     1)
+  ");
   $vgroup_mmtid =  3;
   $error_gen =   9;
-  $error_404 =  12;
-  $error_403 =  13;
+  $error_404 =  11;
+  $error_403 =  12;
+
+  // load various dependencies needed for the mm_content functions.
+  module_load_include('module', 'monster_menus', 'monster_menus');
 
   mm_content_update_parents(NULL, NULL, FALSE, TRUE);
+  // Update the mm_tree column containing the sort index.
+  mm_content_update_sort();
   mm_content_groups_mmtid();
   mm_content_users_mmtid();
 
@@ -62,8 +69,7 @@ function monster_menus_install() {
       (6,  'limit_hidden'),
       (6,  'limit_location'),
       (6,  'limit_name'),
-      (6,  'limit_write'),
-      (15, 'no_breadcrumb')
+      (6,  'limit_write')
       ");
 
   // MM blocks
@@ -78,24 +84,35 @@ function monster_menus_install() {
       (4, 1, -1, -1),
       (5, 1, -1, -1),
       (7, 1, -1, -1),
-      (11,2, -1, -1)
+      (10,2, -1, -1)
       ");
+  // Enable the "New sub-section" block
+  db_query("UPDATE {blocks} SET status = 1, region = 'left', throttle = 0 WHERE module = 'monster_menus' AND delta = '1'");
 
-  module_load_include('inc', 'monster_menus', 'mm_content');
-  // Default virtual groups
-  foreach (array(
-      'All logged-in users' => array('uid', 'FROM users WHERE uid>0'),
-      ) as $name => $list) {
-    $mmtid = mm_content_insert_or_update(TRUE, $vgroup_mmtid, array('name' => $name, 'default_mode' => 'r,u', 'qfield' => $list[0], 'qfrom' => $list[1]));
+  // Enable some default content types
+  $allowed = array_intersect(array('story', 'page'), array_keys(node_get_types()));
+  if ($allowed) {
+    $settings = array('allowed_node_types' => $allowed);
+    mm_content_set_cascaded_settings(4, $settings, FALSE);
+    mm_content_set_cascaded_settings(7, $settings, FALSE);
   }
 
-  mm_content_update_sort();
+  // Default virtual groups
+  foreach (array(
+      'All logged-in users' => array('uid', 'FROM {users} WHERE uid > 0'),
+      ) as $name => $list) {
+    mm_content_insert_or_update(TRUE, $vgroup_mmtid, array(
+        'name' => $name,
+        'default_mode' => 'r,u',
+        'qfield' => $list[0],
+        'qfrom' => $list[1],
+      )
+    );
+  }
 
-  // After creating virtual groups, update the mm_virtual_group results table
-  module_load_include('module', 'monster_menus', 'monster_menus');
+  // After creating virtual groups, update the mm_virtual_group results table.
   mm_regenerate_vgroup();
 
-  module_load_include('inc', 'monster_menus', 'mm_ui');  // for monster_menus_nodeapi()
   _mm_install_node_add(array(
       'type' => 'page', 'title' => '', 'body' => '', 'mm_catlist' => array($error_gen => 'Error')));
   _mm_install_node_add(array(
@@ -105,9 +122,15 @@ function monster_menus_install() {
       'type' => 'page', 'title' => 'Authorization Required', 'body' => 'You do not have permission to read the contents of this page. <p>If you are not already logged into the system, you may be able to access the page once you do so.</p>',
       'mm_catlist' => array($error_403 => 'Authorization Required')));
 
-  // Default allowed node types
-  db_query('INSERT IGNORE INTO {mm_allowed_node} (mmtid, type) SELECT %d, type FROM {node_type}', 4);
-  db_query('INSERT IGNORE INTO {mm_allowed_node} (mmtid, type) SELECT %d, type FROM {node_type}', 7);
+  // We need to clear caches, but drupal_flush_all_caches() doesn't work here;
+  // it leaves the theme cache in a messed-up state.
+  menu_rebuild();
+  node_types_rebuild();
+  $core = array('cache', 'cache_block', 'cache_filter', 'cache_page');
+  $cache_tables = array_merge(module_invoke_all('flush_caches'), $core);
+  foreach ($cache_tables as $table) {
+    cache_clear_all('*', $table, TRUE);
+  }
 
   drupal_set_message(t('Monster Menus has been enabled.'));
 }
@@ -1200,7 +1223,7 @@ function monster_menus_schema() {
   return $schema;
 }
 
-function _mm_install_node_add( $arr ) {
+function _mm_install_node_add($arr) {
   global $user;
   $arr = array_merge($arr, array(
     'nid' => '',
@@ -2155,7 +2178,8 @@ function monster_menus_update_6507() {
 
 function monster_menus_update_6508() {
   $ret = array();
-  $result = db_query("UPDATE {mm_tree_flags} SET flag = 'limit_move' WHERE flag = 'limit_copymove'");
+  $query = "UPDATE {mm_tree_flags} SET flag = 'limit_move' WHERE flag = 'limit_copymove'";
+  $outcome = db_query($query);
   $ret[] = array('success' => $outcome !== FALSE, 'query' => $query);
   return $ret;
 }

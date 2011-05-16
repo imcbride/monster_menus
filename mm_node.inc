@@ -1,5 +1,5 @@
 <?php
-// $Id: mm_node.inc 4777 2010-11-12 19:20:34Z dan $
+// $Id: mm_node.inc 5411 2011-05-12 14:39:30Z dan $
 
 /**
  * @file
@@ -107,7 +107,7 @@ function mm_node_redir_access($op, $node, $account) {
  * Implementation of hook_form().
  */
 function mm_node_redir_form(&$node) {
-  drupal_set_title($node->nid ? t('Edit a redirector') : t('Create a redirector'));
+  drupal_set_title(!empty($node->nid) ? t('Edit a redirector') : t('Create a redirector'));
 
   $form['title'] = array(
     '#type' => 'hidden',
@@ -121,18 +121,15 @@ function mm_node_redir_form(&$node) {
     '#type' => 'textfield',
     '#maxlength' => 500,
     '#title' => t('Destination URL'),
-    '#default_value' => $node->redir_url,
+    '#default_value' => isset($node->redir_url) ? $node->redir_url : '',
     '#attributes' => array('class' => 'node-redir-url'),
   );
 
   $mmlist = array();
-  if ($node->nid) {
-    if ($node->redir_category &&
-        ($tree = mm_content_get_tree($node->redir_category, array(MM_GET_TREE_RETURN_PERMS => TRUE, MM_GET_TREE_DEPTH => 0))) &&
-        $tree[0]->perms['r']) {
-
-      $mmlist = array($node->redir_category => mm_content_expand_name($tree[0]->name));
-      $pop_mmtid = $node->redir_category;
+  if (isset($node->nid)) {
+    if ($node->redir_mmtid && ($tree = mm_content_get($node->redir_mmtid)) && mm_content_user_can($node->redir_mmtid, 'r')) {
+      $mmlist = array($node->redir_mmtid => mm_content_expand_name($tree->name));
+      $pop_mmtid = $node->redir_mmtid;
     }
     else if ($r = db_fetch_object(db_query('SELECT t.mmtid,t.name FROM {mm_node2tree} n INNER JOIN {mm_tree} t ON n.mmtid = t.mmtid WHERE nid = %d', $node->nid))) {
       $pop_mmtid = $r->mmtid;
@@ -147,7 +144,7 @@ function mm_node_redir_form(&$node) {
     $pop_start = implode('/', $mmtids);
   }
 
-  $form['where']['redir_category'] = array(
+  $form['where']['redir_mmtid'] = array(
     '#title' => t('Destination page (internal redirect):'),
     '#type' => 'mm_catlist',
     '#default_value' => $mmlist,
@@ -166,16 +163,16 @@ function mm_node_redir_form(&$node) {
  * Implementation of hook_validate().
  */
 function mm_node_redir_validate(&$node) {
-  if (!empty($node->redir_category)) {
-    $mmtid = mm_ui_mmlist_key0($node->redir_category);
+  if (!empty($node->redir_mmtid)) {
+    $mmtid = mm_ui_mmlist_key0($node->redir_mmtid);
 
     if (!isset($mmtid) || !mm_content_user_can($mmtid, 'r')) {
-      form_set_error('redir_category',
+      form_set_error('redir_mmtid',
           t('You are not allowed to redirect to page %cat.',
-          array('%cat' => $node->redir_category[$mmtid])));
+          array('%cat' => $node->redir_mmtid[$mmtid])));
     }
 
-    $node->redir_category = $mmtid;
+    $node->redir_mmtid = $mmtid;
   }
   else if (!empty($node->redir_url)) {
     $redir_url = trim($node->redir_url);
@@ -193,7 +190,7 @@ function mm_node_redir_validate(&$node) {
  */
 function mm_node_redir_insert($node) {
   db_query("INSERT INTO {mm_node_redir} (nid, vid, url, mmtid) VALUES (%d, %d, '%s', %d)",
-      $node->nid, $node->vid, $node->redir_url, $node->redir_category);
+      $node->nid, $node->vid, $node->redir_url, $node->redir_mmtid);
 }
 
 /**
@@ -206,7 +203,7 @@ function mm_node_redir_update($node) {
   }
   else {
     db_query("UPDATE {mm_node_redir} SET mmtid=%d, url='%s' WHERE vid=%d",
-        $node->redir_category, $node->redir_url, $node->vid);
+        $node->redir_mmtid, $node->redir_url, $node->vid);
   }
 }
 
@@ -219,8 +216,8 @@ function mm_node_redir_update($node) {
 function mm_node_redir_nodeapi(&$node, $op, $teaser, $page) {
   switch ($op) {
     case 'presave':
-      if (!empty($node->redir_category)) {
-        $node->redir_category = mm_ui_mmlist_key0($node->redir_category);
+      if (!empty($node->redir_mmtid)) {
+        $node->redir_mmtid = mm_ui_mmlist_key0($node->redir_mmtid);
       }
       else if (!empty($node->redir_url)) {
         $node->redir_url = trim($node->redir_url);
@@ -247,7 +244,7 @@ function mm_node_redir_delete($node) {
  */
 function mm_node_redir_load($node) {
   $additions = db_fetch_object(db_query(
-    'SELECT url AS redir_url, mmtid AS redir_category FROM {mm_node_redir} WHERE vid = %d',
+    'SELECT url AS redir_url, mmtid AS redir_mmtid FROM {mm_node_redir} WHERE vid = %d',
     $node->vid));
   return $additions;
 }
@@ -258,17 +255,25 @@ function mm_node_redir_load($node) {
 function mm_node_redir_view($node, $teaser = FALSE, $page = FALSE) {
   $node = node_prepare($node, $teaser);
   if (node_access('update', $node)) {
-    if (!empty($node->redir_category)) {
-      $dest = 'mm/' . $node->redir_category;
-      $abs = FALSE;
+    if (!empty($node->redir_mmtid)) {
+      if (mm_content_get($node->redir_mmtid)) {
+        $dest = 'mm/' . $node->redir_mmtid;
+        $abs = FALSE;
+      }
     }
     else if (!empty($node->redir_url)) {
       $dest = $node->redir_url;
       $abs = TRUE;
     }
 
-    $output = t('This page would normally redirect the user to !dest. You are seeing this page because you are allowed to change the redirection.',
-      array('!dest' => l(t('this location'), $dest, array('absolute' => $abs))));
+    if (isset($abs)) {
+      $output = t('This page would normally redirect the user to !dest. You are seeing this page because you are allowed to change the redirection.',
+        array('!dest' => l(t('this location'), $dest, array('absolute' => $abs))));
+    }
+    else {
+      drupal_set_message(t('A redirector on this page seems to be broken. This can happen when it refers to another page in the CMS which has been deleted. Please click on the Edit link to correct the problem.'), 'error');
+      $output = t('This is a broken redirector.');
+    }
     if ($teaser || !$page) {
       $node->content['teaser']['#value'] = $output;
       $node->content['body']['#value'] = '';
@@ -279,11 +284,17 @@ function mm_node_redir_view($node, $teaser = FALSE, $page = FALSE) {
     }
   }
   else {
-    if (!empty($node->redir_category)) {
-      mm_redirect_to_mmtid($node->redir_category);
+    if (!empty($node->redir_mmtid)) {
+      if (mm_content_get($node->redir_mmtid)) {
+        mm_redirect_to_mmtid($node->redir_mmtid);
+      }
     }
     else if (!empty($node->redir_url)) {
       drupal_goto($node->redir_url);
+    }
+    else {
+      $node->no_attribution = TRUE;
+      $node->title = '';
     }
   }
   return $node;
@@ -315,7 +326,7 @@ function mm_node_gallery_access($op, $node, $account) {
  * Implementation of hook_form().
  */
 function mm_node_gallery_form(&$node, &$form_state) {
-  drupal_set_title($node->nid ? t('Edit a gallery') : t('Create a gallery'));
+  drupal_set_title(!empty($node->nid) ? t('Edit a gallery') : t('Create a gallery'));
   $defaults = _mm_node_gallery_settings();
 
   $type = node_get_types('type', $node);
@@ -326,7 +337,7 @@ function mm_node_gallery_form(&$node, &$form_state) {
   mm_parse_args($mmtids);
   $pop_start = implode('/', $mmtids);
   $mmlist = array();
-  $use_node = $node->nid || isset($form_state['values']);
+  $use_node = !empty($node->nid) || isset($form_state['values']);
   if ($use_node) {
     _mm_node_gallery_convert_values($node);
     foreach ($node->img_mmtids as $row)
@@ -714,7 +725,7 @@ function _mm_node_gallery_convert_values(&$node) {
 
   $which = $node->mode . '_final_deriv';
   $node->final_deriv = isset($node->$which) ? $node->$which : '';
-  if ($mode != 'link') {
+  if ($node->mode != 'link') {
     $which = $node->mode . '_thumb_deriv';
     $node->thumb_deriv = isset($node->$which) ? $node->$which : '';
   }
@@ -884,7 +895,7 @@ function mm_node_gallery_view($node, $teaser = FALSE, $page = FALSE) {
           case 'link':
             if ($file_node->images[$final_deriv]) {
               if ($i == 1) $out .= '<div style="display: none">';
-              $out .= _mm_node_gallery_image($file_node, $node, $link_title, $final_deriv, FALSE, $i ? '' : $node->link_text);
+              $out .= _mm_node_gallery_image($file_node, $node, $thumb_deriv, $final_deriv, FALSE, $i ? '' : $node->link_text);
               $i++;
             }
             break;
@@ -944,6 +955,7 @@ function mm_node_gallery_view($node, $teaser = FALSE, $page = FALSE) {
 }
 
 function _mm_node_gallery_image($file_node, $node, $thumb_deriv, $final_deriv, $hide_thumb_comment = FALSE, $link = NULL) {
+  $comments = '';
   if (!$hide_thumb_comment && $file_node->comment > 0 && $node->show_comment) {
     $comments = $file_node->comment_count ? format_plural($file_node->comment_count, t('1 comment'), t('@count comments')) : t('No comments yet');
     $comments = '<div class="links">' . l($comments, 'node/' . $file_node->nid) . '</div>';
@@ -953,10 +965,10 @@ function _mm_node_gallery_image($file_node, $node, $thumb_deriv, $final_deriv, $
   $small_url = $file_node->isimage ? 'media/view/' . $file_node->nid . '/' . $thumb_deriv . '/' . urlencode($file_node->uploadedfilename) : base_path() . drupal_get_path('module', 'media') . '/icons/' . _media_get_icon($file_node->filemime);
   $small_img = '<img class="image ' . $thumb_deriv . '" src="' . check_url(url($small_url)) . '" alt="' . $file_node_title . '" title="';
 
-  if (!empty($file_node_title) && $node->show_title) $title = "<h2>$file_node_title</h2>";
-  if (!empty($file_node->teaser) && $node->show_caption) $caption = '<div class="mm-gallery-caption">' . $file_node->teaser . '</div>';
+  $title = (!empty($file_node_title) && $node->show_title) ? "<h2>$file_node_title</h2>" : '';
+  $caption = (!empty($file_node->teaser) && $node->show_caption) ? '<div class="mm-gallery-caption">' . $file_node->teaser . '</div>' : '';
 
-  if ($file_node->images[$final_deriv]) {
+  if (!empty($file_node->images[$final_deriv])) {
     $img_title = t('!size; last edited on !date', array('!date' => format_date($file_node->changed), '!size' => format_size($file_node->filesize[$final_deriv])));
     $small_img .= check_plain($img_title) . '"/>';
     $link_title = $title . $caption . $comments;
@@ -996,7 +1008,7 @@ function mm_node_subpglist_access($op, $node, $account) {
  * Implementation of hook_form().
  */
 function mm_node_subpglist_form(&$node, &$form_state) {
-  drupal_set_title($node->nid ? t('Edit a subpage list') : t('Create a subpage list'));
+  drupal_set_title(!empty($node->nid) ? t('Edit a subpage list') : t('Create a subpage list'));
   $defaults = _mm_node_subpglist_settings();
 
   $type = node_get_types('type', $node);
@@ -1015,7 +1027,7 @@ function mm_node_subpglist_form(&$node, &$form_state) {
   );
   $form['body_filter']['filter'] = filter_form($node->format);
 
-  $use_node = $node->nid || isset($form_state['values']);
+  $use_node = !empty($node->nid) || isset($form_state['values']);
 
   $form['appearance'] = array(
     '#type' => 'fieldset',
@@ -1049,7 +1061,7 @@ function mm_node_subpglist_form(&$node, &$form_state) {
   $form['postamble'] = array(
     '#type' => 'textarea',
     '#title' => t('Postamble'),
-    '#default_value' => $node->postamble,
+    '#default_value' => empty($node->postamble) ? '' : $node->postamble,
     '#rows' => 5
   );
 
@@ -1084,7 +1096,7 @@ function mm_node_subpglist_insert($node) {
  */
 function mm_node_subpglist_update($node) {
   // if this is not a new node or we're adding a new revision
-  if (!$node->revision) {
+  if (!isset($node->revision) || !$node->revision) {
     db_query('DELETE FROM {mm_node_subpglist} WHERE vid = %d', $node->vid);
   }
   mm_node_subpglist_insert($node);
@@ -1181,6 +1193,7 @@ function mm_node_subpglist_view($node, $teaser = FALSE, $page = FALSE) {
 
   $node = node_prepare($node, $teaser);
   $link = "mm/$this_mmtid/";
+  $out = '';
   foreach (array($shown, $hidden) as $tree) {
     if (count($tree)) {
       if (count($hidden) && $tree[0]->mmtid == $hidden[0]->mmtid)
@@ -1291,7 +1304,7 @@ function monster_menus_form_alert_node_form_alter(&$form) {
  * Implementation of hook_form().
  */
 function mm_node_alert_form(&$node) {
-  drupal_set_title($node->nid ? t('Edit a system alert') : t('Create a system alert'));
+  drupal_set_title(!empty($node->nid) ? t('Edit a system alert') : t('Create a system alert'));
 
   $type = node_get_types('type', $node);
   $form['title'] = array('#type' => 'textfield', '#title' => check_plain($type->title_label), '#required' => TRUE, '#default_value' => $node->title, '#weight' => -5);
@@ -1308,14 +1321,15 @@ function mm_node_alert_add_to_footer() {
   $output = '';
   $now = time();
 
-  if (!empty($_SESSION["mm_node_alert_avoid_nid"]))
-    $nid_skip_where = ' n.nid NOT IN (' . implode(',', $_SESSION["mm_node_alert_avoid_nid"]) . ') AND ';
+  $nid_skip_where = '';
+  if (!empty($_SESSION['mm_node_alert_avoid_nid']))
+    $nid_skip_where = ' n.nid NOT IN (' . implode(',', $_SESSION['mm_node_alert_avoid_nid']) . ') AND ';
   $frequency = variable_get('mm_node_alert_frequency', 'once');
   if ($frequency == 'once') {
-    $last = $user->timestamp ? $user->timestamp : $user->access;
+    $last = !empty($user->timestamp) ? $user->timestamp : $user->access;
   }
   else if ($frequency == 'login') {
-    if (!$_SESSION['mm_node_displayed_alert']) {
+    if (empty($_SESSION['mm_node_displayed_alert'])) {
       $last = 0;
       $_SESSION['mm_node_displayed_alert'] = TRUE;
     }
@@ -1330,12 +1344,12 @@ function mm_node_alert_add_to_footer() {
   // Note: If this method proves not to work well, go to using the history table
   // instead. Just remember to call node_tag_new($node->nid) here and clear-out
   // any entries when the node is edited.
-  $result = db_query("SELECT n.nid FROM {node} n ".
-    "INNER JOIN {mm_node_schedule} s ON s.nid = n.nid ".
+  $result = db_query('SELECT n.nid FROM {node} n '.
+    'INNER JOIN {mm_node_schedule} s ON s.nid = n.nid '.
     "WHERE n.status = 1 AND n.type = '%s' AND %d >= s.publish_on AND ". $nid_skip_where .
-      "(s.unpublish_on = 0 OR %d < unpublish_on) AND ".
-      "(%d = 0 OR (%d BETWEEN s.publish_on AND n.changed - 1) OR %d < s.publish_on) ".
-    "ORDER BY n.sticky DESC, IF(s.set_change_date = 1 AND s.publish_on > 0, s.publish_on, n.changed) DESC",
+      '(s.unpublish_on = 0 OR %d < unpublish_on) AND '.
+      '(%d = 0 OR (%d BETWEEN s.publish_on AND n.changed - 1) OR %d < s.publish_on) '.
+    'ORDER BY n.sticky DESC, IF(s.set_change_date = 1 AND s.publish_on > 0, s.publish_on, n.changed) DESC',
     'alert', $now, $now, $last, $last, $last, $last);
   while ($nid = db_result($result))
     if (mm_content_user_can_node($nid, 'r') && ($node = node_load($nid)) && !mm_content_node_is_recycled($node)) {
@@ -1345,7 +1359,7 @@ function mm_node_alert_add_to_footer() {
         mm_static('node_alert', TRUE);
       }
       else {
-        $_SESSION["mm_node_alert_avoid_nid"][] = $node->nid;
+        $_SESSION['mm_node_alert_avoid_nid'][] = $node->nid;
       }
     }
   return $output;

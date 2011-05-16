@@ -1,5 +1,5 @@
 <?php
-// $Id: mm_schedule.module 4926 2011-01-21 19:18:36Z vquinn $
+// $Id: mm_schedule.module 5387 2011-05-03 21:09:51Z dan $
 
 /**
  * @file
@@ -149,7 +149,7 @@ function mm_schedule_mm_url_rewrite_outbound($mmtid, &$path, &$options, $origina
     }
 
     array_shift($args);                           // skip .mm_calendar
-    if (preg_match('{^\d+(\+|$)}', $args[0])) array_shift($args); // skip any node number
+    if ($args && preg_match('{^\d+(\+|$)}', $args[0])) array_shift($args); // skip any node number
 
     foreach ($args as $key => $value)
       if (preg_match('{^[-0-9W]+$}', $value)) {
@@ -158,7 +158,7 @@ function mm_schedule_mm_url_rewrite_outbound($mmtid, &$path, &$options, $origina
       }
 
     // Preserve old mode (grid or list)
-    if (preg_match('{^([a-z]+)(/|$)}', $_GET['mm_calendar'], $matches)) {
+    if (!empty($_GET['mm_calendar']) && preg_match('{^([a-z]+)(/|$)}', $_GET['mm_calendar'], $matches)) {
       array_unshift($args, $matches[1]);
     }
 
@@ -205,7 +205,7 @@ function mm_schedule_mm_calendar_access($op, $node, $account) {
  * Implementation of hook_form().
  */
 function mm_schedule_mm_calendar_form(&$node) {
-  drupal_set_title($node->nid ? t('Edit a calendar') : t('Create a calendar'));
+  drupal_set_title(!empty($node->nid) ? t('Edit a calendar') : t('Create a calendar'));
 
   $type = node_get_types('type', $node);
   $form['title'] = array('#type' => 'textfield', '#title' => check_plain($type->title_label), '#required' => TRUE, '#default_value' => $node->title, '#weight' => -5);
@@ -279,7 +279,7 @@ function mm_schedule_mm_calendar_view($node, $teaser = FALSE, $page = FALSE) {
   }
 
   $nids = array($node->nid);
-  if ($node->mycalendar) {
+  if (!empty($node->mycalendar)) {
     // Add calendar nodes that are "pushed" to this user
     $result = db_query(
       'SELECT DISTINCT n.nid FROM {mm_group} g ' .
@@ -294,7 +294,8 @@ function mm_schedule_mm_calendar_view($node, $teaser = FALSE, $page = FALSE) {
 
   $view->mm_came_from = '';
   if ($display_mode != 'ical') {
-    $view->mm_came_from = "$this_tid:$display_mode:$args[0]:$node->nid";
+    $args0 = isset($args[0]) ? $args[0] : '';
+    $view->mm_came_from = "$this_tid:$display_mode:$args0:$node->nid";
   }
 
   array_unshift($args, join('+', $nids));
@@ -381,7 +382,7 @@ function mm_schedule_preprocess_calendar_main(&$vars) {
       );
       $new_mode = $params[$view->mm_display_mode];
       $get = $_GET;
-      $get['mm_calendar'] = join('/', array($new_mode[0], preg_replace('{^[a-z]+(/|$)}', '', $get['mm_calendar'])));
+      $get['mm_calendar'] = join('/', array($new_mode[0], isset($get['mm_calendar']) ? preg_replace('{^[a-z]+(/|$)}', '', $get['mm_calendar']) : ''));
       $vars['calendar_links'][] = array(
         'title' => $new_mode[1],
         'href' => "mm/$mmtid",
@@ -397,7 +398,7 @@ function mm_schedule_preprocess_calendar_main(&$vars) {
     // Export
     if ($view->mm_node->field_show_export[0]['value']) {
       $get = $_GET;
-      $get['mm_calendar'] = join('/', array('ical', preg_replace('{^[a-z]+(/|$)}', '', $get['mm_calendar'])));
+      $get['mm_calendar'] = join('/', array('ical', isset($get['mm_calendar']) ? preg_replace('{^[a-z]+(/|$)}', '', $get['mm_calendar']) : ''));
       $vars['calendar_links'][] = array(
         'title' => t('Export'),
         'href' => "mm/$mmtid",
@@ -469,7 +470,7 @@ function mm_schedule_link_alter(&$links, &$node) {
  */
 function mm_schedule_link($type, $node, $teaser = FALSE) {
   $links = array();
-  if (!$teaser && isset($node) && node_access('view', $node)) {
+  if ($type == 'node' && !$teaser && isset($node) && node_access('view', $node)) {
     if ($node->type == 'mm_event') {
       if (isset($_REQUEST['destination'])) {
         $query = drupal_query_string_encode(array('destination' => $_REQUEST['destination']));
@@ -630,7 +631,7 @@ function mm_schedule_nodeapi(&$node, $op, $a3, $a4) {
         foreach ($node->field_mm_pages as $page)
           if (!empty($page['value'])) $pages[$page['value']] = TRUE;
 
-      if (is_array($node->field_mm_events))
+      if (isset($node->field_mm_events) && is_array($node->field_mm_events))
         foreach ($node->field_mm_events as $mm_event)
           if (!empty($mm_event['nid'])) $nodes[$mm_event['nid']] = TRUE;
 
@@ -643,7 +644,7 @@ function mm_schedule_nodeapi(&$node, $op, $a3, $a4) {
           while ($other = db_fetch_object($result)) {
             $skip_nids[] = $other->nid;
             if (mm_content_user_can_node($other, 'r') && ($other_node = node_load($other->nid))) {
-              if (is_array($other_node->field_mm_events))
+              if (isset($other_node->field_mm_events) && is_array($other_node->field_mm_events))
                 foreach ($other_node->field_mm_events as $mm_event)
                   $nodes[$mm_event['nid']] = TRUE;
 
@@ -896,7 +897,7 @@ function mm_schedule_event_is_on_calendar($cal_node, $type, $node_or_nid_or_mmti
   }
   else {
     $nid = is_object($node_or_nid_or_mmtid) ? $node_or_nid_or_mmtid->nid : $node_or_nid_or_mmtid;
-    if (is_array($cal_node->field_mm_events))
+    if (isset($cal_node->field_mm_events) && is_array($cal_node->field_mm_events))
       foreach ($cal_node->field_mm_events as $event)
         if ($event['nid'] == $nid) return 'node';
 
@@ -915,7 +916,7 @@ function mm_schedule_event_is_on_calendar($cal_node, $type, $node_or_nid_or_mmti
 }
 
 function _mm_schedule_remove_event_from_calendar($cal_node, $node, $js = NULL) {
-  if (is_array($cal_node->field_mm_events))
+  if (isset($cal_node->field_mm_events) && is_array($cal_node->field_mm_events))
     foreach ($cal_node->field_mm_events as $index => $event)
       if ($event['nid'] == $node->nid) {
         $cal_node->revision = FALSE;
@@ -1007,7 +1008,7 @@ function _mm_schedule_cancel_or_insert_signup($signup, $mode) {
 
     if (!empty($mmtid) && !empty($cal_node) && mm_content_user_can_node($cal_node, 'w', $user_obj)) {
       $found = FALSE;
-      if (is_array($cal_node->field_mm_events)) {
+      if (isset($cal_node->field_mm_events) && is_array($cal_node->field_mm_events)) {
         foreach ($cal_node->field_mm_events as $index => $subscribed) {
           if ($subscribed['nid'] == $signup->nid) {
             $found = $index;

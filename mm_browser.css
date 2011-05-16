@@ -8,10 +8,14 @@ html, body {
 }
 body.mm-page-wrapper {
   height: auto;
+  background: none;
 }
 body#mmtree-assist-properties {
   background: #eee none;
   }
+body.mm-page-wrapper tbody {
+  border: none;
+}
 h4.mmtree-browse-title {
   font-size: 15px;
   color: #310067;
@@ -172,7 +176,7 @@ h4.mmtree-assist-title {
  /*
    LEVEL ONE
  */
- ul.dropdown {
+ul.dropdown {
   position: relative;
   list-style: none;
   text-decoration: none;
@@ -184,6 +188,8 @@ ul.dropdown li {
   float: left;
   list-style: none;
   margin: 0px 3px 3px 0px;
+  background: none;
+  padding: 0;
 }
 ul.dropdown a:hover {
   color: #000;
@@ -243,6 +249,12 @@ ul.dropdown li:hover > ul {
 }
 a.hilite {
   background-color: yellow;
+}
+ul.fg-menu li {
+  background: none;
+}
+#mmtree-browse ul li.leaf a, #mmtree-browse ul li.expanded a, #mmtree-browse ul li.collapsed a {
+  display: inline-block;
 }
 .fg-menu-container {
   z-index: 1;

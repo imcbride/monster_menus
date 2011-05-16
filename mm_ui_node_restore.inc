@@ -1,5 +1,5 @@
 <?php
-// $Id: mm_ui_node_restore.inc 4216 2010-06-25 18:36:37Z dan $
+// $Id: mm_ui_node_restore.inc 5387 2011-05-03 21:09:51Z dan $
 
 /**
  * @file
@@ -28,7 +28,7 @@ function mm_ui_node_restore_confirm(&$form_state, $mmtid, $node) {
 
   return confirm_form($form,
       t('Are you sure you want to restore this content?'),
-      $_GET['destination'] ? $_GET['destination'] : mm_content_get_mmtid_url($mmtid),
+      !empty($_GET['destination']) ? $_GET['destination'] : mm_content_get_mmtid_url($mmtid),
       $msg, t('Restore'), t('Cancel'));
 }
 

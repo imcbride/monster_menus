@@ -1,5 +1,5 @@
 <?php
-// $Id: mm_cck.module 5036 2011-02-15 20:29:26Z vquinn $
+// $Id: mm_cck.module 5387 2011-05-03 21:09:51Z dan $
 
 /**
  * @file
@@ -97,7 +97,7 @@ function mm_cck_field_settings($op, $field) {
 
       if ($field['widget']['type'] != 'mm_userlist') {
         $form['fieldset_advanced']['mm_list_popup_start'] = array(
-          '#type' => $field['widget']['type'],
+          '#type' => $field['widget']['type'] == 'mm_nodelist' ? 'mm_catlist' : $field['widget']['type'],
           '#title' => t('Initial location to display when choosing:'),
           '#default_value' => is_array($field['mm_list_popup_start']) ? $field['mm_list_popup_start'] : array(),
           '#mm_list_max' => 1,
@@ -179,7 +179,7 @@ function mm_cck_field_settings($op, $field) {
       $data[$table_alias][$field['field_name'] .'_value']['relationship'] = array(
         'base' => 'mm_node2tree',
         'base field' => 'mmtid',
-        'field' => $db_info['columns']['value']['column'],
+        'field' => isset($db_info['columns']['value']['column']) ? $db_info['columns']['value']['column'] : '',
         'handler' => 'content_handler_relationship',
         'label' => t('Nodes on pages'),
         'content_field_name' => $field['field_name'],
@@ -264,7 +264,7 @@ function mm_cck_widget(&$form, &$form_state, $field, $items, $delta = NULL) {
       }
       else {
         if ($setting == 'mm_list_show_info') $setting = 'mm_list_no_info';
-        $element["#$setting"] = $field[$setting];
+        if (isset($field[$setting])) $element["#$setting"] = $field[$setting];
       }
     }
 

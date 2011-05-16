@@ -1,5 +1,5 @@
 <?php
-// $Id: mm_create_path.inc 4551 2010-09-15 14:09:37Z dan $
+// $Id: mm_create_path.inc 5403 2011-05-11 13:47:37Z dan $
 
 /**
  * @file
@@ -122,7 +122,6 @@ function mm_create_path(&$items, $clear_cache = FALSE) {
   $last = $items[count($items) - 1];
   if (!isset($last->mmtid)) {
     $path = $parms = $exists = array();
-
     foreach ($items as $item) {
       if (isset($item->mmtid)) {
         // PHP doesn't have a way to keep string keys that look like integers
@@ -159,7 +158,7 @@ function mm_create_path(&$items, $clear_cache = FALSE) {
     $last->mmtid = $mmtid;
 
     foreach ($items as $item) {
-      if ($exists[$item->mmtid] && (!$did_existing_perms[$item->mmtid] || $item->reset)) {
+      if (isset($exists[$item->mmtid]) && (!isset($did_existing_perms[$item->mmtid]) || $item->reset)) {
         $item->uid = _mm_create_path_get_uid($item->uid, 1);
 
         if (is_array($item->no_update) && ($tree = mm_content_get($item->mmtid))) {
@@ -233,6 +232,7 @@ function _mm_create_path($path, $func, &$func_parms = NULL, &$exists = NULL) {
 
   if (!count($path)) return 1;       // topmost mmtid is root node
 
+  $no_alias = FALSE;
   $elem = array_keys($path);         // name=>alias
   if ($elem[0] === 0) {              // no alias
     $no_alias = TRUE;
@@ -333,7 +333,7 @@ function _mm_create_path_create($parent, $name, $alias, $parms) {
  *   The modified parameters object
  */
 function _mm_create_path_clear_parms($parms) {
-  if ($parms->members !== '') {
+  if (isset($parms->members) && $parms->members !== '') {
     $new_members = array();
     if (is_array($parms->members)) {
       foreach ($parms->members as $m) {

@@ -1,4 +1,4 @@
-// $Id: mm_search_replace.js 4818 2010-11-22 16:40:23Z dan $
+// $Id: mm_search_replace.js 5324 2011-04-15 20:05:33Z dan $
 (function($) {
   $.fn.extend({
     mySerialize: function() {
@@ -76,7 +76,7 @@ MMSR_where_changed = function() {
     .append(widgets)
     .parent()
     .show();
-  $(':input:visible', widgets)
+  $(':input:visible,:input[name^search-archive]', widgets)
     .change(MMSR_recalculate);
   var oldMMLists = $('.mm-list-hidden', $('form div #search-' + this.value));
   $('.mm-list-hidden', widgets)
@@ -304,8 +304,15 @@ MMSR_initialize = function() {
     .click(MMSR_minus_clicked);
 
   $('#mm-search-form')
-    .append('<div id="mmsr-status"><div id="mmsr-status-text"></div><img src="' + Drupal.settings.MMSR.loading + '" style="display: none"></div>')
-    .append('<div id="diagnostic" style="clear: right"></div>');
+    .append('<div id="mmsr-status"><div id="mmsr-status-text"></div><img src="' + Drupal.settings.MMSR.loading + '" style="display: none"></div>');
+  Drupal.behaviors.collapse($('<fieldset id="mmsr-diagnostic" class="collapsible collapsed"><div id="mmsr-diagnostic-content"></div></fieldset>')
+    .prepend(
+      $('<legend><a href="#">' + Drupal.settings.MMSR.t_query + '</a></legend>')
+    )
+    .appendTo('#mm-search-form').parent());
+  $('<input type="button" id="mmsr-recalc" value="' + Drupal.settings.MMSR.t_recalc + '">')
+    .click(MMSR_recalculate)
+    .prependTo('#mmsr-status');
   $('#mmsr-status #mmsr-status-text')
     .before(
       $('#edit-result')
@@ -413,12 +420,12 @@ MMSR_recalculate = function() {
       global:   false,
       success:  function(obj) {
                   $('#mmsr-status-text')
-                    .html(obj.result)
+                    .html(obj.result || '')
                     .show()
                     .next()
                     .hide();
-                  $('#diagnostic')
-                    .html('<font color="gray">' + (obj.query || '') + '</font>');
+                  $('#mmsr-diagnostic-content')
+                    .html(obj.query || '');
                 },
       error:    function(a,b,c) {
                   $('#mmsr-status-text')
@@ -426,8 +433,8 @@ MMSR_recalculate = function() {
                     .show()
                     .next()
                     .hide();
-                  $('#diagnostic')
-                    .html('<font color="gray">' + (obj.query || '') + '</font>');
+                  $('#mmsr-diagnostic-content')
+                    .html(obj.query || '');
                 }
     });
   }

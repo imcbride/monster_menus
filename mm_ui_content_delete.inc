@@ -1,5 +1,5 @@
 <?php
-// $Id: mm_ui_content_delete.inc 4953 2011-01-24 21:55:03Z dan $
+// $Id: mm_ui_content_delete.inc 5155 2011-03-16 15:37:13Z dan $
 
 /**
  * @file
@@ -7,7 +7,7 @@
  */
 
 function mm_ui_content_delete($tree, $x, $is_group) {
-  if (isset($tree[0]->flags['limit_delete'])) {
+  if (isset($tree[0]->flags['limit_delete']) && !user_access('administer all menus')) {
     drupal_access_denied();
     return;
   }
@@ -24,7 +24,7 @@ function mm_ui_content_delete($tree, $x, $is_group) {
       if ($t->level == 1 && $x['%sub'] == '') $x['%sub'] = mm_content_expand_name($t->name);
     }
 
-    if ($del_perm && !$t->perms['w'] && !$t->perms['IS_RECYCLE_BIN'] || isset($t->flags['limit_delete'])) {
+    if ($del_perm && !$t->perms['w'] && !$t->perms['IS_RECYCLE_BIN'] || isset($t->flags['limit_delete']) && !user_access('administer all menus')) {
       $x['%name'] = mm_content_expand_name($t->name);
       return t('You cannot delete this @thing because you do not have permission to delete the @subthing %name', $x);
     }
@@ -136,16 +136,18 @@ function mm_ui_content_delete_confirm_validate($form, &$form_state) {
     form_set_error('', t('Node not found.'));
   }
 
-  if (isset($tree[0]->flags['limit_delete'])) {
-    drupal_access_denied();
-    return;
-  }
-
-  $x = mm_ui_strings($tree[0]->is_group);
-  foreach ($tree as $t) {
-    if ($form_state['values']['del_perm'] && !$t->perms['w'] && !$t->perms['IS_RECYCLE_BIN'] || isset($t->flags['limit_delete'])) {
-      $x['%name'] = mm_content_expand_name($t->name);
-      form_set_error('', t('You cannot delete this @thing because you do not have permission to delete the @subthing %name', $x));
+  if (!user_access('administer all menus')) {
+    if (isset($tree[0]->flags['limit_delete'])) {
+      drupal_access_denied();
+      return;
+    }
+  
+    $x = mm_ui_strings($tree[0]->is_group);
+    foreach ($tree as $t) {
+      if ($form_state['values']['del_perm'] && !$t->perms['w'] && !$t->perms['IS_RECYCLE_BIN'] || isset($t->flags['limit_delete'])) {
+        $x['%name'] = mm_content_expand_name($t->name);
+        form_set_error('', t('You cannot delete this @thing because you do not have permission to delete the @subthing %name', $x));
+      }
     }
   }
 

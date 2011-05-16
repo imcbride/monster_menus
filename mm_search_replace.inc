@@ -1,15 +1,11 @@
 <?php
-// $Id: mm_search_replace.inc 4975 2011-01-26 22:21:29Z dan $
+// $Id: mm_search_replace.inc 5387 2011-05-03 21:09:51Z dan $
 
 /**
  * @file
  * Search for nodes/MM categories with certain attributes, and perform certain
  * actions on them
  */
-
-// Set this value to TRUE to enable some debugging messages and to see the search
-// query submitted via AJAX.
-define('MMSR_debug', FALSE);
 
 // _mm_theme_mm_list in mm_theme.inc depends on $_mmsr_regexp
 global $_mmsr_vars, $_mmsr_query_segments, $_mmsr_regexp;
@@ -20,10 +16,10 @@ function _mm_search_form_walk_page($item, $key, &$data) {
   static $last_fieldset;
 
   if (is_array($item)) {
-    if ($item['#type'] == 'fieldset') {
+    if (isset($item['#type']) && $item['#type'] == 'fieldset') {
       $last_fieldset = $item['#title'];
     }
-    else if ($item['#type'] == 'textarea') {
+    else if (isset($item['#type']) && $item['#type'] == 'textarea') {
       _mm_search_disable_wysiwyg($item);
     }
     if (isset($item['#mm-search'])) {
@@ -71,10 +67,10 @@ function _mm_search_form_walk_group($item, $key, &$data) {
   static $last_fieldset;
 
   if (is_array($item)) {
-    if ($item['#type'] == 'fieldset') {
+    if (isset($item['#type']) && $item['#type'] == 'fieldset') {
       $last_fieldset = $item['#title'];
     }
-    else if ($item['#type'] == 'textarea') {
+    else if (isset($item['#type']) && $item['#type'] == 'textarea') {
       _mm_search_disable_wysiwyg($item);
     }
     if (isset($item['#mm-search'])) {
@@ -114,7 +110,7 @@ function _mm_search_form_walk_group($item, $key, &$data) {
         }
       }
     }
-    else if ($item['#type'] == 'mm_userlist') {
+    else if (isset($item['#type']) && $item['#type'] == 'mm_userlist') {
       if (is_array($data->form["search-$key-choose"]))
         $data->form["search-$key-choose"][$key] = $item;
     }
@@ -129,7 +125,7 @@ function _mm_search_form_walk_node($item, $key, &$data) {
     $item['#weight'] = 0;
     $item['#required'] = FALSE;
     $item['#description'] = isset($item['#mm-search-description']) ? $item['#mm-search-description'] : NULL;
-    if ($item['#input']) {
+    if (isset($item['#input']) && $item['#input']) {
       switch ($item['#type']) {
         case 'textarea':
           _mm_search_disable_wysiwyg($item);
@@ -163,7 +159,7 @@ function _mm_search_form_walk_node($item, $key, &$data) {
         _mm_search_form_opts($data, $item, $key, $mm_search_opt);
       }
     }
-    else if ($item['#type'] == 'mm_userlist') {
+    else if (isset($item['#type']) && $item['#type'] == 'mm_userlist') {
       if (is_array($data->form["search-$key-choose"]))
         $data->form["search-$key-choose"][$key] = $item;
     }
@@ -285,8 +281,9 @@ function mm_search_form(&$form_state, $item, $mmtid) {
   $user = $old_user;
   session_save_session(TRUE);  // re-enable session saving
   drupal_prepare_form($form_id, $form, $form_state);
-  $form['mm_appearance']['changed'] = $form['mm_appearance']['date'];
+  $form['mm_appearance']['changed'] = isset($form['mm_appearance']['author']['date']) ? $form['mm_appearance']['author']['date'] : '';
   _mm_search_disable_wysiwyg($form['body_field']['body']);
+  if (!isset($form['#post'])) $form['#post'] = array();
   $form = form_builder($form_id, $form, $form_state);
   mm_search_replace_alter_node($form);
   mm_content_restore_breadcrumb();
@@ -342,6 +339,8 @@ function mm_search_form(&$form_state, $item, $mmtid) {
             'loading' => base_path() . drupal_get_path('module', 'thickbox') . '/loading_animation.gif',
             'startup' => $startup,
             'reset' => $reset,
+            't_recalc' => t('Recalc'),
+            't_query' => t('Query'),
             't_where' => t('where'),
             't_of_type' => t('of type'),
             't_plus' => t('Add a row'),
@@ -349,6 +348,7 @@ function mm_search_form(&$form_state, $item, $mmtid) {
       )
     ), 'setting');
   drupal_add_js('Drupal.settings.MMSR.fixups["input.autocomplete"] = MMSR_fixup_autocomplete;', 'inline');
+  drupal_add_js('misc/collapse.js');
   $_SESSION['mmsr-query'] = $data->query;
   if (MMSR_debug) debug_add_dump($data);
   return $data->form;
@@ -365,7 +365,19 @@ function mm_search_form_submit($form, &$form_state) {
 }
 
 function mm_search_results() {
-  $output = l(t('Export as CSV'), $_GET['q'] . '.csv', array('query' => drupal_query_string_encode($_GET, array('q'))));
+  $links = array(
+    array(
+      'title' => t('Search Again'),
+      'href' => preg_replace('{/[^/]*/?$}', '', $_GET['q']),
+      'query' => drupal_query_string_encode($_GET, array('q')),
+    ),
+    array(
+      'title' => t('Export as CSV'),
+      'href' => $_GET['q'] . '.csv',
+      'query' => drupal_query_string_encode($_GET, array('q')),
+    ),
+  );
+  $output = theme('links', $links);
 
   $count_sql = _mm_search_result_query($_SESSION['mmsr-data'], $_SESSION['mmsr-query']['queries'], TRUE, $result_sql, $header);
   $result = pager_query($result_sql, 25, 0, $count_sql);
@@ -456,8 +468,8 @@ function _mm_search_form_opts(&$data, $item, $key, $opt, $is_group = FALSE, $typ
     );
   }
   $used_subpanels_outer = FALSE;
-  if (is_array($opt[0]) && $type != '#mm-search-opt-optgroup' && $type != '#mm-search-opt-list') {
-    $i = 0;
+  if (isset($opt[0]) && is_array($opt[0]) && $type != '#mm-search-opt-optgroup' && $type != '#mm-search-opt-list') {
+    $i = $weight = 0;
     foreach ($opt as $title => $o) {
       $k = "$key-$i";
       $options = array_keys($o);
@@ -466,7 +478,7 @@ function _mm_search_form_opts(&$data, $item, $key, $opt, $is_group = FALSE, $typ
       foreach ($options as $o2)
         if (preg_match('/^\[(.*?)\]$/', $o2, $matches)) {
           $subpanel = $matches[1];
-          $sp_options[$subpanel] = $item[$subpanel]['#title'];
+          $sp_options[$subpanel] = isset($item[$subpanel]['#title']) ? $item[$subpanel]['#title'] : '';
           $item[$subpanel]['#type'] = 'markup';
           $item[$subpanel]['#prefix'] = '<div class="subpanel" name="' . "search-$k-$subpanel" . '">';
           $item[$subpanel]['#suffix'] = '</div>';
@@ -480,7 +492,7 @@ function _mm_search_form_opts(&$data, $item, $key, $opt, $is_group = FALSE, $typ
           '#type' => 'select',
           '#title' => is_numeric($title) ? NULL : $title,
           '#options' => $used_subpanels ? $sp_options : $options,
-          '#weight' => $item['#mm-search-weight'],
+          '#weight' => isset($item['#mm-search-weight']) ? $item['#mm-search-weight'] : $weight++,
           '#attributes' => (isset($item['#mm-search-attr']) ? $item['#mm-search-attr'] : ($used_subpanels ? array('class' => 'subpanel-select') : NULL)),
         );
       }
@@ -488,7 +500,7 @@ function _mm_search_form_opts(&$data, $item, $key, $opt, $is_group = FALSE, $typ
       $i++;
     }
     if (isset($item['#mm-search-query'])) {
-      $data->query['queries'][$key][0] = $item['#mm-search-joins'];
+      $data->query['queries'][$key][0] = isset($item['#mm-search-joins']) ? $item['#mm-search-joins'] : '';
       $data->query['queries'][$key][1] = $item['#mm-search-query'];
     }
   }
@@ -504,7 +516,7 @@ function _mm_search_form_opts(&$data, $item, $key, $opt, $is_group = FALSE, $typ
               '#type' => 'select',
               '#title' => is_numeric($k) ? NULL : $k,
               '#options' => array_keys($v),
-              '#weight' => $item['#mm-search-weight'],
+              '#weight' => isset($item['#mm-search-weight']) ? $item['#mm-search-weight'] : '',
               '#attributes' => (isset($item['#mm-search-attr']) ? $item['#mm-search-attr'] : $item['#attributes']),
             );
           }
@@ -537,14 +549,14 @@ function _mm_search_form_opts(&$data, $item, $key, $opt, $is_group = FALSE, $typ
           '#title' => $type == '#mm-search-opt-check' ? $keys[1] : NULL,
           '#type' => $type == '#mm-search-opt-check' ? 'checkbox' : 'select',
           '#options' => $keys,
-          '#weight' => $item['#mm-search-weight'],
-          '#attributes' => (isset($item['#mm-search-attr']) ? $item['#mm-search-attr'] : $item['#attributes']),
+          '#weight' => isset($item['#mm-search-weight']) ? $item['#mm-search-weight'] : '',
+          '#attributes' => (isset($item['#mm-search-attr']) ? $item['#mm-search-attr'] : (isset($item['#attributes']) ? $item['#attributes'] : array())),
         );
       }
     }
     if (isset($item['#mm-search-query'])) {
       unset($item['#description']);
-      $data->query['queries'][$key][0] = $item['#mm-search-joins'];
+      $data->query['queries'][$key][0] = isset($item['#mm-search-joins']) ? $item['#mm-search-joins'] : '';
       $data->query['queries'][$key][1] = $item['#mm-search-query'];
     }
   }
@@ -569,10 +581,20 @@ function mm_search_result_count() {
   $result = db_result(db_query($query));
   if (isset($result)) $result = format_plural($result, '@count match', '@count matches');
 //  fwrite($f,print_r($result."\n",1));
-  $out = array('result' => $result);
+  $debug = '';
   if (MMSR_debug) {
-    $out['query'] = '<p>' . $_POST['data'] . '</p><p>' . db_prefix_tables($query) . '</p>' . var_dump_ret($args) . monster_menus_footer();
+    $debug = '<p>' . htmlspecialchars($_POST['data']) . '</p>';
   }
+
+  $debug .= '<p>' . htmlspecialchars(db_prefix_tables($query)) . '</p>';
+
+  if (function_exists('AMH_debug_footer')) {
+    $debug .= AMH_debug_footer(FALSE);
+  }
+  $out = array(
+    'result' => $result,
+    'query' => $debug,
+  );
   print drupal_to_js($out);
   $GLOBALS['devel_shutdown'] = FALSE;
 //  fclose($f);
@@ -587,7 +609,7 @@ function _mm_search_result_query($data, $query_info, $results, &$result_query, &
   foreach (explode('&', $data) as $arg) {
     list($key, $val) = explode('=', $arg, 2);
     $val = urldecode($val);
-    if (!$visited[$key]) $visited[$key] = TRUE;
+    if (!isset($visited[$key]) || !$visited[$key]) $visited[$key] = TRUE;
     else {
       $row++;
       $visited = array('search-logic' => TRUE);
@@ -685,14 +707,15 @@ function _mm_search_result_query($data, $query_info, $results, &$result_query, &
     } // foreach
 
     foreach ($qlist as $q) {
-      if (isset($q[0]))
+      if (isset($q[0]) && is_array($q[0]))
         foreach ($q[0] as $table => $join_seg)
           if (!isset($joins[$table]))
             $joins[$table] = _mm_search_parse($join_seg, $table, '', $vars);
 
       $w = '';
       foreach ($q[1] as $varname => $seg)
-        $w .= _mm_search_parse($seg, $table, $vars[$varname], $vars);
+        if (isset($vars[$varname]))
+          $w .= _mm_search_parse($seg, '', $vars[$varname], $vars);
 
       if ($w != '') $wlist[] = "($w)";
     }
@@ -704,6 +727,8 @@ function _mm_search_result_query($data, $query_info, $results, &$result_query, &
     if ($wheres) $wheres = '(' . $wheres . ') AND ';
     $wheres .= join(' AND ', $wlist2);
   }
+
+  $query_joins = '';
   foreach ($joins as $table => $on)
     $query_joins .= ' LEFT JOIN {' . $table . '} ON ' . $on;
 
@@ -732,7 +757,7 @@ $_mmsr_regexp = '/
 function _mm_search_parse($seg, $table, $val, $vars2 = NULL) {
   global $_mmsr_vars, $_mmsr_regexp;
 
-  $_mmsr_vars = array('table' => '{' . $table . '}');
+  $_mmsr_vars = !empty($table) ? array('table' => '{' . $table . '}') : array();
   _mm_search_set_vars($val);
   if (is_array($vars2)) $_mmsr_vars = array_merge($_mmsr_vars, $vars2);
 
@@ -795,5 +820,5 @@ function _mm_search_date($item_id, $field) {
 
   $date = module_exists('date_popup') ? $_mmsr_vars[$item_id . '[date]'] . ' ' . $_mmsr_vars[$item_id . '[time]'] : $_mmsr_vars[$item_id];
   $dv = preg_match('/\d/', $date) ? date_make_date($date) : '';
-  return $field . $_mmsr_query_segments[$item_id][intval($_mmsr_vars["search-$item_id-0"])] . ($dv ? $dv->timestamp : 0);
+  return $field . $_mmsr_query_segments[$item_id][intval($_mmsr_vars["search-$item_id-0"])] . ($dv ? date_convert($dv, DATE_OBJECT, DATE_UNIX) : 0);
 }

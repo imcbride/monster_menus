@@ -1,4 +1,4 @@
-// $Id: mm_browser.js 4778 2010-11-12 19:21:29Z dan $
+// $Id: mm_browser.js 5346 2011-04-21 19:52:17Z dan $
 /* Javascript file for the Monster Menus tree browser */
 
 Drupal.behaviors.mm_browser_init = function() {
@@ -160,9 +160,9 @@ Drupal.mm_browser_refresh_right = function(node) {
   $("#mmtree-browse-items").html('<iframe id="mmtree-browse-iframe" width="100%" height="' + ht + '" frameborder="0" src="' + Drupal.settings.basePath + 'mm-browser-getright?id=' + node.id + '&' + Drupal.mm_browser_params() + '"></iframe>');
   $.getJSON(
     Drupal.mm_browser_append_params(Drupal.settings.basePath + "mm-browser-get-lastviewed?id=" + node.id),
-    function(data) {
-      Drupal.settings.lastBrowserPath = data.path;
-    }
+      function (data) {
+        if (data) Drupal.settings.lastBrowserPath = data.path;
+      }
   );
 };
 

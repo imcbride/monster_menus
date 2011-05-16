@@ -1,16 +1,10 @@
 <?php
-// $Id: misc.inc 4973 2011-01-26 21:12:56Z dan $
+// $Id: misc.inc 5387 2011-05-03 21:09:51Z dan $
 
 /**
  * @file
  * Miscellaneous MM functions
  */
-
-define('MM_NODE_INFO_NO_RENDER',  'no_render');  // don't render this node type
-define('MM_NODE_INFO_ADD_HIDDEN', 'add_hidden'); // hide the Add node link for this type
-
-define('MM_HOME_MMTID_DEFAULT', 7);
-define('MM_MENU_BID', 1); // block ID (bid) containing the page section title
 
 /**
  * Get a standard "Access Denied" message
@@ -79,6 +73,7 @@ function mm_autocomplete($want_username, $string = '', $misc = NULL) {
 
   $string = trim($string);
   if (!empty($string)) {
+    $result = NULL;
     $hook = mm_module_implements('mm_autocomplete_alter');
     if ($hook) {
       $function = $hook[0] . '_mm_autocomplete_alter';
@@ -89,40 +84,49 @@ function mm_autocomplete($want_username, $string = '', $misc = NULL) {
     }
     else if (drupal_strlen($string) >= $min_string) {
       // Consider Anonymous and Administrator first
+      $startswith = $contains = '';
       for ($i = 0; $i <= 1; $i++) {
         $name = mm_content_uid2name($i);
         if (($pos = stristr($name, $string)) !== FALSE) {
-          $stmt = "(SELECT $i, '', '', '$name', '', '', '', 0, 0, 0) UNION ";
+          $stmt = "(SELECT $i AS uid, '' AS name, '' AS pref_fml, '' AS pref_lfm, '$name' AS lastname, '' AS firstname, '' AS middlename) UNION ";
           if (!$pos) $startswith .= $stmt;
           else $contains .= $stmt;
         }
       }
       $status_limit = user_access('administer all users') ? '' : ' status = 1 AND';
-      $contains = preg_replace('/ UNION $/', '', $contains);
       $result = db_query(
+        'SELECT * FROM (' .
           $startswith .
           $contains .
-          "(SELECT uid, '' AS pref_fml, '' AS pref_lfm, '' AS lastname, '' AS firstname, name, '' AS middlename ".
-            "FROM {users} WHERE$status_limit uid > 0 AND name LIKE '%s%%' ".
+          "(SELECT uid, name, '' AS pref_fml, '' AS pref_lfm, '' AS lastname, '' AS firstname, '' AS middlename " .
+            "FROM {users} WHERE$status_limit uid > 1 AND name = '%s' " .
             'ORDER BY name) UNION '.
-          "(SELECT uid, '' AS pref_fml, '' AS pref_lfm, '' AS lastname, '' AS firstname, name, '' AS middlename ".
-            "FROM {users} WHERE$status_limit uid > 0 AND name LIKE '%%_%s%%' ".
-            'ORDER BY name) '.
+          "(SELECT uid, name, '', '', '', '', '' " .
+            "FROM {users} WHERE$status_limit uid > 1 AND name LIKE '%s%%' " .
+            'ORDER BY name) UNION '.
+          "(SELECT uid, name, '', '', '', '', '' " .
+            "FROM {users} WHERE$status_limit uid > 1 AND name LIKE '%%_%s%%' " .
+            'ORDER BY name)) x ' .
           'LIMIT %d',
-          $string, $string, $limit + 1);
+        $string, $string, $string, $limit + 1);
     }
-    else $matches = $too_short;
+    else {
+      $matches = $too_short;
+    }
 
-    while ($user = db_fetch_object($result))
-      if (count($matches) == $limit) {
-        $matches[''] = '...';
-        break;
+    if (!empty($result)) {
+      while ($usr = db_fetch_object($result)) {
+        if (count($matches) == $limit) {
+          $matches[''] = '...';
+          break;
+        }
+        else {
+          $name = check_plain(mm_content_uid2name($usr->uid, 'lfmu', $usr));
+          if (!$want_username) $matches[$usr->uid . '-' . $name] = $name;
+          else if ($usr->name) $matches[$usr->name] = $name;
+        }
       }
-      else {
-        $name = check_plain(mm_content_uid2name($user->uid, 'lfmu', $user));
-        if (!$want_username) $matches[$user->uid . '-' . $name] = $name;
-        else if ($user->name) $matches[$user->name] = $name;
-      }
+    }
   }
 
   drupal_set_header('Content-Type: text/plain');
@@ -356,7 +360,7 @@ function mm_show_page() {
       $node = (object)array();
 
       if (!count($users)) $node->title = t('There are no users in this group.');
-      else if ($users[''] == '...') {
+      else if (isset($users['']) && $users[''] == '...') {
         $node->title = t('A partial list of users in this group:');
       }
       else {
@@ -387,13 +391,19 @@ function mm_show_page() {
       if (!isset($node)) $node = (object)array();
       $node->body = $nada;
       $node->links = $links;
+      $node->created = strtotime('now');
+      $node->uid = 0;
+      $node->name = 'admin';
+      $node->nid = 0;
+      $node->title = '';
+      $node->no_attribution = TRUE;
       unset($links);
       $node->type = 'story';
       $output = theme('node', $node, FALSE, TRUE);
     }
   }   // $err=='no content'
 
-  if ($links) {
+  if (isset($links)) {
     $output .= theme('links', $links);
   }
 
@@ -705,6 +715,9 @@ function mm_redirect_to_mmtid($mmtid, $add = NULL, $hash = NULL) {
 function mm_set_user_roles(&$account) {
   global $user;
 
+  // The query below assumes that uid=0 will never be checked
+  if (!$account->uid) return;
+
   $added_role = FALSE;
   $q = mm_query(
     'SELECT rid, name FROM (SELECT r2.rid, r.name, (COALESCE(SUM(v.uid = %d OR g.vgid = 0 AND g.uid = %d), 0) > 0) <> r2.negative AS ok FROM {mm_role2group} r2 INNER JOIN {role} r ON r.rid = r2.rid INNER JOIN {mm_group} g ON g.gid = r2.gid LEFT JOIN {mm_virtual_group} v ON g.vgid = v.vgid GROUP BY r2.rid) AS s WHERE s.ok', $account->uid, $account->uid);
@@ -753,7 +766,7 @@ function mm_regenerate_vgroup() {
 
     if (!$nrows) break;
 
-    if (!$created) {
+    if (!isset($created)) {
       // db_query_temporary() isn't flexible enough, because we need an index
       @db_drop_table($create_errs, 'mm_virtual_group_temp');
       db_create_table($create_errs, 'mm_virtual_group_temp', drupal_get_schema('mm_virtual_group'));
@@ -852,10 +865,21 @@ function mm_regenerate_vgroup() {
       'subject' => t('Error in virtual group regeneration'), 'body' => join("\n\n", array_values($email_errors)) . $sql, 'headers' => array()));
   }
 
-  if ($created) db_drop_table($create_errs, 'mm_virtual_group_temp');
+  if (isset($created)) db_drop_table($create_errs, 'mm_virtual_group_temp');
   db_query('OPTIMIZE TABLE {mm_virtual_group}');
 
-  return 'Virtual groups have been regenerated.';
+  return t('Virtual groups have been regenerated.');
+}
+
+function mm_render_nodes_on_page($mmtid, $per_page) {
+  $item = mm_content_get($mmtid, MM_GET_ARCHIVE);
+  $perms = mm_content_user_can($mmtid);
+  $no_read = $ok = 0;
+  $output = '';
+  // set $_GET['page'] to control the page number
+  if (_mm_render_nodes_on_page($item, $perms, (int)$per_page, array(), FALSE, $output, $ok, $no_read, $pager_elem, $archive_tree, $archive_date_int, $rss_link)) {
+    print $output;
+  }
 }
 
 /**
@@ -946,10 +970,11 @@ function mm_module_invoke_all_array($hook, $args) {
 // ****************************************************************************
 
 function _mm_render_pages($mmtids, $oarg_list, &$err, $no_attribution = FALSE, $allow_rss = TRUE, $block_id = 0) {
-  global $user, $_mm_page_subscribe_item, $_mm_mmtid_of_node;
-  $err = '';
+  global $_mm_page_subscribe_item;
+
+  $err = $output = $output_post = '';
+  $no_read = $ok = 0;
   $this_mmtid = $mmtids[count($mmtids) - 1];
-  $no_read = 0; $ok = 0;
 
   // Check for mm_showpage callbacks, specified in hook_mm_showpage_routing()
   $showpage_no_nodes = FALSE;
@@ -964,11 +989,11 @@ function _mm_render_pages($mmtids, $oarg_list, &$err, $no_attribution = FALSE, $
       if (preg_match($key, $temp_path) && (!isset($item['block id']) || $item['block id'] == $block_id) && _mm_showpage_callback($item, 'access', $temp_args, $this_mmtid, $block_id)) {
         $showpage_output = _mm_showpage_callback($item, 'page', $temp_args, $this_mmtid, $block_id);
         if (is_array($showpage_output)) {
-          $output .= $showpage_output['output_pre'];
-          $output_post .= $showpage_output['output_post'];
-          $showpage_no_nodes |= $showpage_output['no_nodes'];
+          if (isset($showpage_output['output_pre']))  $output .= $showpage_output['output_pre'];
+          if (isset($showpage_output['output_post'])) $output_post .= $showpage_output['output_post'];
+          if (isset($showpage_output['no_nodes']))    $showpage_no_nodes |= $showpage_output['no_nodes'];
         }
-        else if ($showpage_output) {
+        else if (!empty($showpage_output)) {
           $output .= $showpage_output;
           $showpage_no_nodes = FALSE;
         }
@@ -990,166 +1015,27 @@ function _mm_render_pages($mmtids, $oarg_list, &$err, $no_attribution = FALSE, $
     $ok++;
   }
   else if ($showpage_show_nodes) {
-    // display a list of pages assigned to the current tree entry
     $item = mm_content_get($this_mmtid, MM_GET_ARCHIVE);
-    $result = NULL;
-
-    $omit_nodes = '';
-    if (!$perms['IS_RECYCLED']) {
-      $omit_node_types = mm_get_node_info(MM_NODE_INFO_NO_RENDER);
-      if ($omit_node_types) $omit_nodes = " AND n.type NOT IN('" . join("', '", $omit_node_types) . "')";
+    if (!_mm_render_nodes_on_page($item, $perms, $nodes_per_page, $oarg_list, $no_attribution, $output, $ok, $no_read, $pager_elem, $archive_tree, $archive_date_int, $rss_link)) {
+      drupal_not_found();
+      exit;
     }
 
-    if (isset($item->main_mmtid) || isset($item->archive_mmtid)) {
-      // This is an archive page, or the main page for which there is an archive
-      if ($this_mmtid > 0) {
-        $mmtid = isset($item->main_mmtid) ? $item->main_mmtid : $this_mmtid;
-        $q = mm_content_get_accessible_nodes_by_mmtid_query($mmtid, $count_sql);
-        $result = db_query($q);
-      }
-    }
-    else if (count($oarg_list) && !$output) {
-      // if the remaining parameters in the URL can't be accounted for, it's a dead link
-      $other_mmtids = array_diff($oarg_list, variable_get('mm_reserved_alias', array()));
-      if (count($other_mmtids)) return drupal_not_found();
-    }
-
-    if (is_null($result)) {
-      global $pager_total;
-      $pager_elem = count($pager_total) + 1;
-      $result = mm_content_get_accessible_nodes_by_mmtid($this_mmtid, $nodes_per_page, $pager_elem, '', '', $omit_nodes);
-    }
-
-    $rss_link = NULL;
-    if (isset($item->archive_mmtid)) {
-      $archive_tree = array();
-      $archive_count = 0;
-      $now = time();
-      if ($oarg_list && preg_match('/([12]\d\d\d)-(0[1-9]|1[0-2])-([0123]\d)/', $oarg_list[0], $matches)) {
-        $archive_date = array(
-          'year' => intval($matches[1]),
-          'mon' =>  intval($matches[2]),
-          'mday' => intval($matches[3]));
-      }
-    }
-
-    while ($n = db_fetch_object($result)) {
-      if (!mm_content_user_can_node($n->nid, 'r')) {
-        $no_read++;
-      }
-      else {
-        $ok++;
-        $_mm_mmtid_of_node[$n->nid] = $this_mmtid;
-        if ($oarg_list[0] != 'feed') {
-          // This is an archive page, or the main page for which there is an archive,
-          // and the node is not stuck on the main page, and it's always visible to everyone
-          if (isset($item->archive_mmtid) && ($item->archive_mmtid == $this_mmtid || !$n->stuck && $n->scheduled && $n->status == 1)) {
-            // skip this node if viewing the main page of an archive and we've seen main_nodes # of non-sticky, always-appearing nodes
-            if (++$archive_count > $item->main_nodes || $item->archive_mmtid == $this_mmtid && !$n->stuck && $n->scheduled && $n->status == 1) {
-              $date = getdate($n->created);
-              switch ($item->frequency) {
-                case 'year':
-                  $rounded = mktime(0, 0, 0, 1, 1, $date['year']);
-                  $archive_tree[$date['year']] = $rounded;
-                  $archive_show = $archive_date['year'] == $date['year'];
-                  break;
-
-                case 'month':
-                  $rounded = mktime(0, 0, 0, $date['mon'], 1, $date['year']);
-                  $archive_tree[$date['year']][$date['mon']] = $rounded;
-                  $archive_show = $archive_date['year'] == $date['year'] && $archive_date['mon'] == $date['mon'];
-                  break;
-
-                case 'week':
-                  $rounded = mktime(0, 0, 0, $date['mon'], $date['mday']-$date['wday'], $date['year']);
-                  $date = getdate($rounded);
-                  $archive_tree[$date['year']][$date['mon']][$date['mday']] = $rounded;
-                  $archive_show = $archive_date['year'] == $date['year'] && $archive_date['mon'] == $date['mon'] && $archive_date['mday'] == $date['mday'];
-                  break;
-
-                case 'day':
-                  $rounded = mktime(0, 0, 0, $date['mon'], $date['mday'], $date['year']);
-                  $archive_tree[$date['year']][$date['mon']][$date['mday']] = $rounded;
-                  $archive_show = $archive_date['year'] == $date['year'] && $archive_date['mon'] == $date['mon'] && $archive_date['mday'] == $date['mday'];
-                  break;
-              }
-              if (!isset($archive_date)) {
-                // not in URL, so default to most recent node's date, rounded down
-                $archive_date = getdate($rounded);
-                $archive_show = TRUE;
-              }
-              if ($archive_show) $archive_date_int = $rounded;
-            }
-
-            // skip this node if viewing an archive page and it's sticky
-            if ($item->archive_mmtid == $this_mmtid && ($n->stuck || !$n->scheduled || !$archive_show)) continue;
-            // skip this node if viewing the main page and we've already seen main_nodes # of nodes
-            if ($item->main_mmtid == $this_mmtid && $archive_count > $item->main_nodes) continue;
-          }
-
-          $node = node_load($n->nid);
-          if ($node->nid) {
-            $message = $body = '';
-            if (!$node->status) {
-              $message = t('This piece of content is not yet published. It can only be seen by people who can edit it.');
-            }
-            else if (!$n->scheduled) {
-              $message = t('This piece of content can only be seen by people who can edit it, due to its appearance schedule.');
-            }
-
-            if ($node->type == 'blog') {
-              $body = "<a id=\"node-$node->nid\"></a>" . node_view($node, TRUE);
-            }
-            else {
-              if ($no_attribution) $node->no_attribution = TRUE;
-              if ($item->previews) {
-                $body = node_view($node, TRUE);
-              }
-              else if (variable_get('mm_show_count_instead_of_comments', FALSE) && $node->comment && module_exists('comment')) {
-                // Generate the node body without comments turned on, but then
-                // turn it back on in monster_menus_link_alter() so that the
-                // link showing the number of comments appears.
-                $node->old_comment = $node->comment;
-                $node->comment = 0;   // Generate body without comments
-                $node->need_comment_alter = TRUE;
-                $body = node_view($node, FALSE, TRUE);
-                $node->comment = $node->old_comment;
-              }
-              else {
-                $body = mm_node_show($node, 0);
-              }
-            }
-            // $node->no_display is a custom field that can be set by a hook_view module, such as rss_page_view
-            if ($node->no_display) {
-              $archive_count--;
-            }
-            else {
-              if ($message) {
-                $body = '<div class="preview"><div id="message"><div class="messages status">'. $message . '</div></div>' . $body . '</div>';
-              }
-              $output .= "<a id=\"node-$node->nid\"></a>" . $body;
-            }
-
-            $rss_link = is_null($rss_link) && $node->rss_link ? $node->rss_link : FALSE;
-          }
-        }
-      }
-    }
-
-    if ($ok && $oarg_list[0] == 'feed') {
-      $tree = mm_content_get($this_mmtid);
+    if ($ok && isset($oarg_list[0]) && $oarg_list[0] == 'feed') {
       $result = db_query_range(
           db_rewrite_sql(mm_content_get_accessible_nodes_by_mmtid_query($this_mmtid, $count_sql)),
           0, variable_get('feed_default_items', 10));
-      $channel['link'] = url("mm/$this_mmtid", array('absolute' => TRUE));
-      $channel['title'] = variable_get('site_name', 'drupal') . ': ' . $tree->name;
-      $channel['description'] = '';
       $nids = array();
       while ($row = db_fetch_object($result)) {
         if ($row->scheduled) {
           $nids[] = $row->nid;
         }
       }
+      $channel = array(
+        'link' => url("mm/$this_mmtid", array('absolute' => TRUE)),
+        'title' => variable_get('site_name', 'drupal') . ': ' . $item->name,
+        'description' => '',
+      );
       node_feed($nids, $channel);
       exit;
     }
@@ -1162,7 +1048,7 @@ function _mm_render_pages($mmtids, $oarg_list, &$err, $no_attribution = FALSE, $
         drupal_add_link(array('rel' => 'alternate',
           'type' => 'application/rss+xml',
           'title' => t('RSS'),
-          'href' => $rss_link ? $rss_link : url("mm/$this_mmtid/feed", array('absolute' => TRUE))));
+          'href' => !empty($rss_link) ? $rss_link : url("mm/$this_mmtid/feed", array('absolute' => TRUE))));
       }
 
       if (isset($item->main_mmtid) || isset($item->archive_mmtid)) {
@@ -1180,6 +1066,159 @@ function _mm_render_pages($mmtids, $oarg_list, &$err, $no_attribution = FALSE, $
 
   $err = $no_read ? 'no read' : 'no content';
   return '';
+}
+
+// display a list of pages assigned to a tree entry
+function _mm_render_nodes_on_page($item, $perms, $nodes_per_page, $oarg_list, $no_attribution, &$output, &$ok, &$no_read, &$pager_elem, &$archive_tree, &$archive_date_int, &$rss_link) {
+  global $_mm_mmtid_of_node;
+
+  $rss_link = NULL;
+  $archive_date_int = 0;
+  $archive_tree = array();
+
+  $omit_nodes = '';
+  if (!$perms['IS_RECYCLED']) {
+    $omit_node_types = mm_get_node_info(MM_NODE_INFO_NO_RENDER);
+    if ($omit_node_types) $omit_nodes = " AND n.type NOT IN('" . join("', '", $omit_node_types) . "')";
+  }
+
+  $result = NULL;
+  if (isset($item->main_mmtid) || isset($item->archive_mmtid)) {
+    // This is an archive page, or the main page for which there is an archive
+    if ($item->mmtid > 0) {
+      $mmtid = isset($item->main_mmtid) ? $item->main_mmtid : $item->mmtid;
+      $q = mm_content_get_accessible_nodes_by_mmtid_query($mmtid, $count_sql);
+      $result = db_query($q);
+    }
+  }
+  else if (count($oarg_list) && empty($output)) {
+    // if the remaining parameters in the URL can't be accounted for, it's a dead link
+    $other_mmtids = array_diff($oarg_list, variable_get('mm_reserved_alias', array()));
+    if (count($other_mmtids)) {
+      return FALSE;
+    }
+  }
+
+  if (is_null($result)) {
+    global $pager_total;
+    $pager_elem = is_null($pager_total) || empty($_GET['page']) ? 0 : count($pager_total) + 1;
+    $result = mm_content_get_accessible_nodes_by_mmtid($item->mmtid, $nodes_per_page, $pager_elem, '', '', $omit_nodes);
+  }
+
+  if (isset($item->archive_mmtid)) {
+    $archive_count = 0;
+    if ($oarg_list && preg_match('/([12]\d\d\d)-(0[1-9]|1[0-2])-([0123]\d)/', $oarg_list[0], $matches)) {
+      $archive_date = array(
+        'year' => intval($matches[1]),
+        'mon' =>  intval($matches[2]),
+        'mday' => intval($matches[3]));
+    }
+  }
+
+  while ($n = db_fetch_object($result)) {
+    if (!mm_content_user_can_node($n->nid, 'r')) {
+      $no_read++;
+    }
+    else {
+      $ok++;
+      $_mm_mmtid_of_node[$n->nid] = $item->mmtid;
+      if (empty($oarg_list) || $oarg_list[0] != 'feed') {
+        // This is an archive page, or the main page for which there is an archive,
+        // and the node is not stuck on the main page, and it's always visible to everyone
+        if (isset($item->archive_mmtid) && ($item->archive_mmtid == $item->mmtid || !$n->stuck && $n->scheduled && $n->status == 1)) {
+          // skip this node if viewing the main page of an archive and we've seen main_nodes # of non-sticky, always-appearing nodes
+          $archive_show = FALSE;
+          if (++$archive_count > $item->main_nodes || $item->archive_mmtid == $item->mmtid && !$n->stuck && $n->scheduled && $n->status == 1) {
+            $date = getdate($n->created);
+            switch ($item->frequency) {
+              case 'year':
+                $rounded = mktime(0, 0, 0, 1, 1, $date['year']);
+                $archive_tree[$date['year']] = $rounded;
+                $archive_show = $archive_date['year'] == $date['year'];
+                break;
+
+              case 'month':
+                $rounded = mktime(0, 0, 0, $date['mon'], 1, $date['year']);
+                $archive_tree[$date['year']][$date['mon']] = $rounded;
+                $archive_show = $archive_date['year'] == $date['year'] && $archive_date['mon'] == $date['mon'];
+                break;
+
+              case 'week':
+                $rounded = mktime(0, 0, 0, $date['mon'], $date['mday']-$date['wday'], $date['year']);
+                $date = getdate($rounded);
+                $archive_tree[$date['year']][$date['mon']][$date['mday']] = $rounded;
+                $archive_show = $archive_date['year'] == $date['year'] && $archive_date['mon'] == $date['mon'] && $archive_date['mday'] == $date['mday'];
+                break;
+
+              case 'day':
+                $rounded = mktime(0, 0, 0, $date['mon'], $date['mday'], $date['year']);
+                $archive_tree[$date['year']][$date['mon']][$date['mday']] = $rounded;
+                $archive_show = $archive_date['year'] == $date['year'] && $archive_date['mon'] == $date['mon'] && $archive_date['mday'] == $date['mday'];
+                break;
+            }
+            if (!isset($archive_date)) {
+              // not in URL, so default to most recent node's date, rounded down
+              $archive_date = getdate($rounded);
+              $archive_show = TRUE;
+            }
+            if ($archive_show) $archive_date_int = $rounded;
+          }
+
+          // skip this node if viewing an archive page and it's sticky
+          if ($item->archive_mmtid == $item->mmtid && ($n->stuck || !$n->scheduled || !$archive_show)) continue;
+          // skip this node if viewing the main page and we've already seen main_nodes # of nodes
+          if ($item->main_mmtid == $item->mmtid && $archive_count > $item->main_nodes) continue;
+        }
+
+        $node = node_load($n->nid);
+        if ($node->nid) {
+          $message = $body = '';
+          if (!$node->status) {
+            $message = t('This piece of content is not yet published. It can only be seen by people who can edit it.');
+          }
+          else if (!$n->scheduled) {
+            $message = t('This piece of content can only be seen by people who can edit it, due to its appearance schedule.');
+          }
+
+          if ($node->type == 'blog') {
+            $body = "<a id=\"node-$node->nid\"></a>" . node_view($node, TRUE);
+          }
+          else {
+            if ($no_attribution) $node->no_attribution = TRUE;
+            if ($item->previews) {
+              $body = node_view($node, TRUE);
+            }
+            else if (variable_get('mm_show_count_instead_of_comments', FALSE) && $node->comment && module_exists('comment')) {
+              // Generate the node body without comments turned on, but then
+              // turn it back on in monster_menus_link_alter() so that the
+              // link showing the number of comments appears.
+              $node->old_comment = $node->comment;
+              $node->comment = 0;   // Generate body without comments
+              $node->need_comment_alter = TRUE;
+              $body = node_view($node, FALSE, TRUE);
+              $node->comment = $node->old_comment;
+            }
+            else {
+              $body = mm_node_show($node, 0);
+            }
+          }
+          // $node->no_display is a custom field that can be set by a hook_view module, such as rss_page_view
+          if (isset($node->no_display) && $node->no_display) {
+            $archive_count--;
+          }
+          else {
+            if ($message) {
+              $body = '<div class="preview"><div id="message"><div class="messages status">'. $message . '</div></div>' . $body . '</div>';
+            }
+            $output .= "<a id=\"node-$node->nid\"></a>" . $body;
+          }
+
+          $rss_link = is_null($rss_link) && (isset($node->rss_link) && $node->rss_link) ? $node->rss_link : FALSE;
+        }
+      }
+    }
+  }
+  return TRUE;
 }
 
 function _mm_resolve_archive(&$mmtid) {
@@ -1222,7 +1261,7 @@ function _mm_showpage_router($reset = FALSE) {
 
       $router = $sort = array();
       foreach ($callbacks as $path => $item) {
-        list($fit, $number_parts) = _mm_showpage_router_fit($path, $item['partial path']);
+        list($fit, $number_parts) = _mm_showpage_router_fit($path, isset($item['partial path']) ? $item['partial path'] : '');
         $ending = isset($item['partial path']) && $item['partial path'] ? '(?:$|/)}' : '$}';
         $path = '{^' . str_replace('%', '[^/]+', preg_quote($path)) . $ending;
         $sort[$path] = $fit;
@@ -1350,8 +1389,8 @@ function mm_large_group_get_users_json($mmtid, $element) {
       }
     }
 
-    $total_rows = db_result(db_query("SELECT COUNT(*) FROM {user} u INNER JOIN {mm_group_temp} m ON u.uid = m.uid" . $where, $values));
-    $query = "SELECT u.uid, u.name FROM {user} u INNER JOIN {mm_group_temp} m ON u.uid = m.uid" . $where . $order;
+    $total_rows = db_result(db_query("SELECT COUNT(*) FROM {users} u INNER JOIN {mm_group_temp} m ON u.uid = m.uid" . $where, $values));
+    $query = "SELECT u.uid, u.name FROM {users} u INNER JOIN {mm_group_temp} m ON u.uid = m.uid" . $where . $order;
     if (isset($_GET['iDisplayStart'])) {
       $results = db_query_range($query, $values, $_GET['iDisplayStart'], $_GET['iDisplayLength']);
     }
@@ -1363,8 +1402,9 @@ function mm_large_group_get_users_json($mmtid, $element) {
       'sEcho' => intval($_GET['sEcho']),
       'iTotalRecords' => $total_rows,
       'iTotalDisplayRecords' => $total_rows,
+      'aaData' => array(),
     );
-    while($item = db_fetch_object($results)) {
+    while ($item = db_fetch_object($results)) {
       $users['aaData'][] = array($item->lastname, $item->firstname, $item->username, '<a href="Javascript:Drupal.mmGroupRemoveUser(' . $item->uid . ',\'' . $clean_element . '\')">' . t('Delete') . '</a>');
     }
   }

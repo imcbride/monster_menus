@@ -1,5 +1,5 @@
 <?php
-// $Id: mm_static.inc 4965 2011-01-26 19:22:36Z dan $
+// $Id: mm_static.inc 5411 2011-05-12 14:39:30Z dan $
 
 /**
  * @file
@@ -30,7 +30,7 @@ function mm_static($which, $add_js = FALSE) {
   if (!function_exists($name)) return;
   $code = call_user_func_array($name, $args);
 
-  if (!empty($code) && $add_js && !$added[$which]) {
+  if (!empty($code) && $add_js && empty($added[$which])) {
     drupal_add_js($code, 'inline', 'footer');
     $added[$which] = TRUE;
   }
@@ -333,8 +333,8 @@ Drupal.behaviors.MMNodeRedir = function(context) {
   \$('.node-redir-url:not(.node-redir-url-processed)', context)
     .addClass('node-redir-url-processed')
     .change(function() {
-      if (this.value != '' && this.form['redir_category'].value != '')
-        this.form['redir_category'].delAll();
+      if (this.value != '' && this.form['redir_mmtid'].value != '')
+        this.form['redir_mmtid'].delAll();
     });
 };
 EOJ

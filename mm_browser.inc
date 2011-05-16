@@ -1,19 +1,10 @@
 <?php
-// $Id: mm_browser.inc 5082 2011-02-28 14:29:19Z vquinn $
+// $Id: mm_browser.inc 5415 2011-05-12 19:43:12Z root $
 
 /**
  * @file
  * Tree browser for Monster Menus
  */
-
-define('MM_BROWSER_MODE_GALLERY', 'gal');
-define('MM_BROWSER_MODE_GROUP',   'grp');
-define('MM_BROWSER_MODE_MEDIA',   'med');
-define('MM_BROWSER_MODE_PAGE',    'pag');
-define('MM_BROWSER_MODE_RSS',     'rss');
-define('MM_BROWSER_MODE_USER',    'usr');
-define('MM_BROWSER_MODE_NODE',    'nod');
-define('MM_BROWSER_MODE_MENU',    'men');
 
 function mm_browser_menu() {
   // Tree Browser Specific Items
@@ -125,13 +116,15 @@ function mm_browser_load() {
   $path = func_get_args();
   $start = array_shift($path);
   $params = explode('-', $start);
-  if ($path[0] != 1 && $path[0] != $params[0]) {
+  if (isset($path[0]) && $path[0] != 1 && $path[0] != $params[0]) {
     array_unshift($path, $params[0]);
   }
   else if (!count($path)) {
     $path[] = 1;
   }
 
+  for ($i = 0; $i < 7; $i++)
+    if (!isset($params[$i])) $params[$i] = '';
   print theme('mm_page_wrapper',
     t('Tree Browser'),
     mm_browser($path[count($path) - 1], $path[0], $params[1], $params[3], $params[4], $params[5], $params[6]),
@@ -187,6 +180,9 @@ function mm_browser($selected, $top_mmtid = 1, $mode = MM_BROWSER_MODE_PAGE, $en
   mm_dep_add_libs('splitter');
   drupal_add_css(drupal_get_path('module', 'monster_menus') . '/mm_browser.css');
 
+  // Suppress the admin module
+  module_invoke_all('suppress');
+
   $out = '<div id="mmtree-browse"><div id="mmtree-browse-nav">';
   $out .= mm_browser_getURLs($mode, $top_mmtid);
   $out .= '<h2 class="mmtree-assist-title">' . $title . '</h2></div>';
@@ -210,7 +206,7 @@ function mm_browser_getURLs($mode, $top_mmtid) {
     $urls .= '<li><a href="#" onclick="Drupal.mm_browser_goto_top(\'' . $allowed_top . '\');" class="fg-button fg-button-icon-right ui-widget ui-state-default ui-corner-all">' . t('View entire tree') . '</a></li>';
   }
 
-  if ($mode != MM_BROWSER_MODE_GROUP && is_numeric($user->user_file_mmtid) && $user->user_file_mmtid > 0) {
+  if ($mode != MM_BROWSER_MODE_GROUP && isset($user->user_file_mmtid) && is_numeric($user->user_file_mmtid) && $user->user_file_mmtid > 0) {
     $urls .= '<li><a href="#" onclick="Drupal.mm_browser_reload_data(\'' . mm_content_get_full_path($user->user_file_mmtid) . '\');" class="fg-button fg-button-icon-right ui-widget ui-state-default ui-corner-all" id="my-uploaded-files-link">' . t('My uploaded files') . '</a></li>';
   }
   $urls .= '<li><span id="last-viewed"><a href="#" onclick="Drupal.mm_browser_last_viewed();" id="last-viewed-link" class="fg-button fg-button-icon-right ui-widget ui-state-default ui-corner-all">' . t('Last location') . '</a></span></li>';
@@ -234,7 +230,7 @@ function mm_browser_getURLs($mode, $top_mmtid) {
 function mm_browser_json() {
   $term_ids = func_get_args();
   $num_ids = func_num_args();
-  $mmtid = intval(substr($_GET['id'], 5));
+  $mmtid = isset($_GET['id']) ? intval(substr($_GET['id'], 5)) : 0;
 
   if ($mmtid) {
     $mm_children = mm_browser_get_tree($num_ids, $mmtid, 0, 'single');
@@ -323,7 +319,7 @@ function mm_browser_get_tree(&$num_ids, &$term_ids, $index, $level) {
       $class['mmtree-hidden'] = 1;
     }
     $data = array('title' => $name);
-    if ($item->nodecount > 0) {
+    if (isset($item->nodecount) && $item->nodecount > 0) {
       $data['title'] = t('!name <span class="mmtree-browse-filecount">!count</span>', array('!name' => $name, '!count' => format_plural($item->nodecount, '(1 item)', '(@count items)')));
     }
 
@@ -346,11 +342,11 @@ function mm_browser_get_tree(&$num_ids, &$term_ids, $index, $level) {
       $class['disabled'] = $class['leaf'] = 1;
       $state = 'leaf';
     }
-    else if ($level != 'single' && $term_ids[$index + 1] == $item->mmtid) {
+    else if ($level != 'single' && isset($term_ids[$index + 1]) && $term_ids[$index + 1] == $item->mmtid) {
       $state = 'open';
       $children = mm_browser_get_tree($num_ids, $term_ids, $index + 1, $level);
     }
-    
+
     $attributes['class'] = $data['attr']['class'] = join(' ', array_keys($class));
 
     $mm_children[] = array(
@@ -365,8 +361,8 @@ function mm_browser_get_tree(&$num_ids, &$term_ids, $index, $level) {
 
 function mm_browser_getright() {
   function _mm_browser_choice($item, $cat, $usr, $group) {
-    if ($item->is_user) return $usr;
-    if ($item->is_group) return $group;
+    if (!empty($item->is_user)) return $usr;
+    if (!empty($item->is_group)) return $group;
     return $cat;
   }
 
@@ -377,11 +373,10 @@ function mm_browser_getright() {
     exit();
   }
 
+  // Suppress the admin module
+  module_invoke_all('suppress');
+
   $mode = $_GET['browserMode'];
-  $is_gallery = $mode == MM_BROWSER_MODE_GALLERY;
-  $is_node_viewer = $mode == MM_BROWSER_MODE_NODE;
-  $name = mm_content_get_name($mmtid);
-  $close = '<a href="#" onclick="' . ($mode == MM_BROWSER_MODE_MEDIA ? 'parent.window.close();' : 'parent.parent.tb_remove();') . '">' . t('Close window') . '</a>';
   drupal_add_css(drupal_get_path('module', 'monster_menus') . '/mm_browser.css');
 
   $bookmark = '';
@@ -389,234 +384,51 @@ function mm_browser_getright() {
     $bookmark = '<a href="#" id="add-bookmark-link" title="' . t('Bookmark this location') . '" onclick="parent.Drupal.mm_browser_add_bookmark_tb(' . $mmtid . "); this.blur();\">" . t('Bookmark') . '</a>';
   }
 
-  $content = '';
   $links = array();
   $item = mm_content_get($mmtid, MM_GET_FLAGS);
   $perms = $item->perms = mm_content_user_can($mmtid);
+  $name = mm_content_get_name($mmtid);
 
-  if ($is_node_viewer) { // Node View
-    // This retrieves the attributes of the content type
-    $slider_fields = content_fields($_GET['browserContentType']);
-    if (!$perms[$slider_fields['mm_list_selectable']]) {
-      if ($mmtid > 0) {
-        $out .= '<div id="mmtree-browse-thumbnails">' . t('<p>You do not have permission to use the content on this page.</p>');
-        $item_fields = content_fields($_GET['browserContentType']);
-        $options = array(
-          'w' => t('delete it or change its settings'),
-          'a' => t('append subpages to it'),
-          'u' => t('add content to it'),
-          'r' => t('read it'));
-        $out .= t('<p>To use content from this page, you must be able to @do.</p>', array('@do' => $options[$item_fields['mm_list_selectable']])) . '</div>';
-      }
-      $header = '<div id="mmtree-browse-header"><h4 class="mmtree-assist-title">' . $name . '</h4>' . $close . '</div><br /><hr />';
-      print theme('mm_page_wrapper', t('Tree Browser'), $header . $out);
-      $GLOBALS['devel_shutdown'] = FALSE; // prevent the devel module from outputting
-      exit();
-    }
-    $allowed_node_types = array();
-    foreach ($slider_fields['mm_list_nodetypes'] as $node_type) {
-      if ($node_type !== 0) {
-        $allowed_node_types[] = "'" . $node_type . "'";
-      }
-    }
-    $wheres = (count($allowed_node_types) != 0) ? "AND n.type IN (" . implode(', ', $allowed_node_types) . ") " : "";
-    $wheres .= "AND n.status = 1";
-    $query =
-      'SELECT n.nid, n.title, n.type, n.changed, t.name FROM {node} n ' .
-      'LEFT JOIN {node_type} t ON n.type = t.type ' .
-      'WHERE nid IN (' .
-      'SELECT m.nid FROM {mm_node2tree} m, {node} n ' .
-      "WHERE m.mmtid = '%s' AND m.nid = n.nid) " .
-      $wheres;
-    $limit = variable_get('mm_nodelist_pager_limit', 20);
-    $header = array(
-      array('data' => t('Type'), 'field' => 'n.type'),
-      array('data' => t('Title'), 'field' => 'n.title'),
-      array('data' => t('Last Modified'), 'field' => 'n.changed', 'sort' => 'desc'),
-                    );
-    $tablesort = tablesort_sql($header);
-    $result = pager_query($query . $tablesort, $limit, 0, NULL, $mmtid);
+  if ($bookmark) $links['bkmark'] = $bookmark;
 
-    $num_query =
-      'SELECT COUNT(*) FROM {node} n ' .
-      'LEFT JOIN {node_type} t ON n.type = t.type ' .
-      'WHERE nid IN (' .
-      'SELECT m.nid FROM {mm_node2tree} m, {node} n ' .
-      "WHERE m.mmtid = %d AND m.nid = n.nid) " .
-      $wheres;
-    $num_results = db_result(db_query($num_query, $mmtid));
-    if ($num_results == 0) {
-      $content = t('There is no selectable content on this page.');
-    }
-    else {
-      $rows = array();
-      while ($node = db_fetch_object($result)) {
-        $row = array();
-        if ($node->type == 'media') {
-          $fileinfo = db_query("SELECT DISTINCT uploadedfilename, filemime, filepath FROM {media_files} WHERE nid = %d", $node->nid);
-          $file = db_fetch_object($fileinfo);
-          $media = media_icon_display($node->nid, 'thumbnail', $file->filemime, $file->filepath, $file->uploadedfilename, $node->title, array('no_resize' => TRUE));
-          $node->uploadedfilename = $file->uploadedfilename;
-          $mime = $file->filemime;
-          $kind = media_get_media_type($mime);
-          $node->name = $node->name . ' - ' . $kind;
-          $node->title = empty($node->title) ? check_plain($node->uploadedfilename) : $node->title;
-          $onclick = "javascript:parent.Drupal.mm_browser_nodepicker_add({$mmtid}, '" . mm_ui_js_escape($node->title) . "', {$node->nid});";
-          $link = '<div class="mmtree-browse-imagesingle ui-state-default ui-widget-content"><div class="mmtree-browse-caption">' . $node->title . '</div><div class="mmtree-browse-imagepreview" onclick="' . $onclick . '">' . $media . '</div></div>';
-        }
-        else {
-          $node->subtype = '';
-          $link = l($node->title, '#', array('attributes' => array('onclick' => "javascript:parent.Drupal.mm_browser_nodepicker_add({$mmtid}, '" . mm_ui_js_escape($node->title) . "', {$node->nid});"), 'external' => TRUE));
-        }
-        $row[] = check_plain($node->name);
-        $row[] = $link;
-        $row[] = format_date($node->changed, 'custom', 'M j, Y g:i A');
-        $rows[] = $row;
-      }
-      $content = theme('table', $header, $rows);
-      $content .= theme('pager', NULL, $limit, 0);
-      if (!$content) {
-        $content = t('<p>There are no nodes on this page.</p>');
-      }
-
-      // Select all link currently disabled. May be nice to enable at a later date,
-      //  but I couldn't think of a way for it to not be confusing. For example, if
-      //  the max allowed nodes set in the cck config mm_list node is 3, then we could theoretically
-      //  allow the user to "Select all" on a page with less than 3 nodes. However, the way it is
-      //  currently architected, there is no way to prevent the user from selecting a single
-      //  node for each of the first 3 picks, then a select all nodes on a page with 3 nodes,
-      //  thereby selecting 5 total nodes. Anyway, I couldn't think of a way to make this
-      //  not confusing for the user so I disabled it, but am leaving it here in case anyone
-      //  can think of a way to make it not confusing in the future.
-      // It also has the problem that a user could select a page which, at the time of selection
-      //  had less than 3 nodes, but was later populated to have > 3 thereby overloading.
-      //  Not any graceful way to prevent this, so it sits disabled. -VJQ 2/25/2011
-      // $links['all'] = "<a href=\"javascript:parent.Drupal.mm_browser_gallery_add($mmtid,'" . mm_ui_js_escape($name) . ' ' . t('(all)') . "');\" title=\"" . t('Select all current and future files on this page') . '">' . t('Select all') . '</a>';
-      if ($bookmark) $links['bkmark'] = $bookmark;
-      jquery_ui_add('ui.core');
-    }
-  } // End Node View
-  else if ($is_gallery || $mode == MM_BROWSER_MODE_MEDIA) { // Gallery View
-    if (!$perms['u']) {
-      if ($mmtid > 0) {
-        $out .= '<div id="mmtree-browse-thumbnails">' . t('You do not have permission to use the file uploads on this page.') . '</div>';
-      }
-      $header = '<div id="mmtree-browse-header"><h4 class="mmtree-assist-title">' . $name . '</h4>' . $close . '</div><br /><hr />';
-      print theme('mm_page_wrapper', t('Tree Browser'), $header . $out);
-      $GLOBALS['devel_shutdown'] = FALSE; // prevent the devel module from outputting
-      exit();
-    }
-
-    $and = $is_gallery ?
-      "f.filename = 'icon' AND f.filemime LIKE 'image/%'" :
-      "((f.filename = 'original' AND f.filemime NOT LIKE 'image/%') " .
-        "OR (f.filename = 'icon' AND f.filemime LIKE 'image/%') " .
-        "OR (f.filename = 'original' AND f.filemime LIKE 'image/%' AND f.nid NOT IN (" .
-          'SELECT nid FROM {media_files} fi ' .
-          "WHERE fi.nid = f.nid AND fi.filemime LIKE 'image/%' AND fi.filename = 'icon')))";
-    $query =
-      'SELECT f.*, nn.title AS title FROM {media_files} f, {node} nn ' .
-      'WHERE f.nid = nn.nid AND f.nid IN (' .
-        'SELECT m.nid FROM {mm_node2tree} m, {node} n ' .
-        "WHERE m.mmtid = %d AND m.nid = n.nid AND n.type='media'" .
-      ") AND $and ORDER BY f.mfid DESC";
-    $result = db_query($query, $mmtid);
-    while ($file = db_fetch_object($result)) {
-      $media = media_icon_display($file->nid, 'thumbnail', $file->filemime, $file->filepath, $file->uploadedfilename, $file->title, array());
-      $link = $is_gallery ?
-        "javascript:parent.Drupal.mm_browser_gallery_add($mmtid, '" . mm_ui_js_escape($file->uploadedfilename) . "', $file->nid);" :
-        "javascript:parent.Drupal.mm_browser_change_parent_url('" . url("media_assist/properties/$file->nid") . "');";
-
-      $title = empty($file->title) ? $file->uploadedfilename : $file->title;
-      $content .= '<div class="mmtree-browse-imagesingle ui-state-default ui-widget-content"><div class="mmtree-browse-caption">' . $title . '</div><div class="mmtree-browse-imagepreview" onclick="' . $link . '">' . $media . '</div></div>';
-    }
-
-    if (!$content) {
-      $content = t('<p>There are no file uploads on this page.</p>');
-    }
-
-    $content = '<div id="mmtree-browse-thumbnails">' . $content .'</div>';
-
-    if ($is_gallery) {
-      $links['all'] = "<a href=\"javascript:parent.Drupal.mm_browser_gallery_add($mmtid,'" . mm_ui_js_escape($name) . ' ' . t('(all)') . "');\" title=\"" . t('Select all current and future files on this page') . '">' . t('Select all') . '</a>';
-      if ($bookmark) $links['bkmark'] = $bookmark;
-    }
-    else {
-      if ($bookmark) $links['bkmark'] = $bookmark;
-    }
-
-    jquery_ui_add('ui.core');
-  } // End Gallery View
-  else { // Non-media modes
-    if (($mode == MM_BROWSER_MODE_PAGE || $mode == MM_BROWSER_MODE_RSS || $mode == MM_BROWSER_MODE_GROUP) && !$item->is_virtual) {
-      $user_can = TRUE;
-      if (drupal_strlen($_GET['browserSelectable'])) {
-        $user_can = FALSE;
-        foreach (str_split($_GET['browserSelectable']) as $check) {
-          if ($perms[$check]) {
-            $user_can = TRUE;
-            break;
-          }
-        }
-      }
-
-      if ($user_can) {
-        $js_parms = 0;
-        if ($mode == MM_BROWSER_MODE_GROUP) {
-          $users = mm_content_get_users_in_group($mmtid, '<br />', FALSE, 20, TRUE);
-          if ($users == '') $users = t('(none)');
-          $js_parms = "'" . mm_ui_js_escape($users) . "'";
-        }
-
-        $links['select'] = "<a href=\"javascript:parent.Drupal.mm_browser_page_add($mmtid,$js_parms);\">" . t('Select') . '</a>';
-      }
-
-      if (!$item->is_virtual) {
-        $content = '<table>';
-
-        if (!$item->is_group) {
-          $content .= '<tr><td align="right"><b>' . t('URL alias:') . '</b>&nbsp;</td><td>' . check_plain($item->alias) . '</td></tr>';
-        }
-
-        if (isset($item->nodecount)) {
-          $content .= '<tr><td align="right"><b>' . t('Items on page:') . '</b>&nbsp;</td><td>' . $item->nodecount . '</td></tr>';
-        }
-
-        $content .= '<tr><td align="right"><b>' . t('Owner:') . '</b>&nbsp;</td><td>' . mm_content_uid2name($item->uid) . '</td></tr>';
-
-        $can = array();
-        foreach (array(
-          'w' => _mm_browser_choice($item, t('delete/edit page'),
-              t('delete/edit user'), t('delete/edit group')),
-          'a' => _mm_browser_choice($item, t('add sub-pages'),
-              $item->name == MM_ENTRY_NAME_USERS ? t('add users') : t('add sub-pages'),
-              t('add sub-groups')),
-          'u' => $item->is_group ? t('apply this group'): t('assign content to page'),
-          'r' => $item->is_group ? t('see group\'s members') : t('read contents of page')) as $type => $desc) {
-
-          if ($perms[$type]) $can[] = $desc;
-        }
-
-        $content .= '<tr valign="top"><td align="right"><b>' . t('You can:') . '</b>&nbsp;</td><td>' . implode('<br />', $can) . '</td></tr>';
-
-        if ($users) {
-          $content .= '<tr valign="top"><td align="right"><b>' . t('Users in group:') . '</b>&nbsp;</td><td>' . $users . '</td></tr>';
-        }
-
-        $content .= '</table>';
-      }
-    }
-
-    if ($bookmark) $links['bkmark'] = $bookmark;
+  if ($mode == MM_BROWSER_MODE_GALLERY) {
+    $links['all'] = "<a href=\"javascript:parent.Drupal.mm_browser_gallery_add($mmtid,'" . mm_ui_js_escape($name) . ' ' . t('(all)') . "');\" title=\"" . t('Select all current and future files on this page') . '">' . t('Select all') . '</a>';
   }
-  $links['close'] = $close;
+  $users = '';
+  if (($mode == MM_BROWSER_MODE_PAGE || $mode == MM_BROWSER_MODE_RSS || $mode == MM_BROWSER_MODE_GROUP) && empty($item->is_virtual)) {
+    if (_mm_browser_user_can($perms)) {
+      $js_parms = 0;
+      if ($mode == MM_BROWSER_MODE_GROUP) {
+        $users = mm_content_get_users_in_group($mmtid, '<br />', FALSE, 20, TRUE);
+        if ($users == '') $users = t('(none)');
+        $js_parms = "'" . mm_ui_js_escape($users) . "'";
+      }
+      $links['select'] = "<a href=\"javascript:parent.Drupal.mm_browser_page_add($mmtid,$js_parms);\">" . t('Select') . '</a>';
+    }
+  }
+  $links['close'] = '<a href="#" onclick="' . ($mode == MM_BROWSER_MODE_MEDIA ? 'parent.window.close();' : 'parent.parent.tb_remove();') . '">' . t('Close window') . '</a>';
   mm_module_invoke_all_array('mm_browser_links_alter', array($mode, &$links, $item));
 
   $header = '<div id="mmtree-browse-header"><h4 class="mmtree-assist-title">' . $name . '</h4>' . implode($links, ' | ') . '</div><br /><hr />';
+
+  $content = '';
+  switch ($mode) {
+    case MM_BROWSER_MODE_NODE:
+      $content = _mm_browser_node_view($mode, $mmtid, $perms);
+      break;
+
+    case MM_BROWSER_MODE_GALLERY:
+    case MM_BROWSER_MODE_MEDIA:
+      $content = _mm_browser_gallery_view($mode, $mmtid, $perms);
+      break;
+
+    default:
+      $content = _mm_browser_default_view($mode, $mmtid, $perms, $item, $users);
+      break;
+  }
+
   $output = theme('mm_page_wrapper', t('Tree Browser'), $header . $content);
   print str_replace('<body', '<body onclick="parent.Drupal.mm_browser_close_menus();"', $output);
-  // Remove old jQuery that is part of Drupal
-//  print preg_replace('{<script type="text/javascript" src="[^"]*?jquery[^"]*?"></script>}', '', $output);
   $GLOBALS['devel_shutdown'] = FALSE; // prevent the devel module from outputting
   exit();
 }
@@ -626,8 +438,9 @@ function mm_browser_bookmark_add() {
   global $base_url, $user;
 
   $args = func_get_args();
-  $mmtid = $args[1];
+  $mmtid = $args[0];
   $name = mm_content_get_name($mmtid);
+  $output = '';
 
   if (mm_browser_is_bookmarked($mmtid, $_GET['browserMode'])) {
     $output = '<link rel="stylesheet" href="' . base_path() . drupal_get_path('module', 'monster_menus') . '/mm_browser_tb.css" />';
@@ -649,6 +462,7 @@ function mm_browser_bookmark_add() {
   }
 
   print($output);
+  module_invoke_all('suppress');
   $GLOBALS['devel_shutdown'] = FALSE; // prevent the devel module from outputting
   exit();
 }
@@ -818,4 +632,235 @@ function mm_browser_get_bookmarks() {
   drupal_json($bookmarks);
   $GLOBALS['devel_shutdown'] = FALSE; // prevent the devel module from outputting
   exit();
+}
+
+function _mm_browser_header($mode, $mmtid) {
+  $name = mm_content_get_name($mmtid);
+  $close = '<a href="#" onclick="' . ($mode == MM_BROWSER_MODE_MEDIA ? 'parent.window.close();' : 'parent.parent.tb_remove();') . '">' . t('Close window') . '</a>';
+  $header = '<div id="mmtree-browse-header"><h4 class="mmtree-assist-title">' . $name . '</h4>' . $close . '</div><br /><hr />';
+  return $header;
+}
+
+/**
+ * Get the appropriate link for the current mode.
+ * @param $mode
+ *   MM browser mode constant
+ * @param $item
+ *   May be a node, may be a file, etc. depends on browser mode
+ * @param $mmtid
+ *   mmtid of current page
+ * @return
+ *   The HTML code of link
+ */
+function _mm_browser_get_link($mode, &$item, $mmtid) {
+  switch ($mode) {
+    case MM_BROWSER_MODE_NODE:
+      if ($item->type == 'media') {
+        $media = media_icon_display($item->nid, 'thumbnail', $item->filemime, $item->filepath, $item->uploadedfilename, $item->title, array());
+        $onclick = "javascript:parent.Drupal.mm_browser_nodepicker_add({$mmtid}, '" . mm_ui_js_escape($item->title) . "', {$item->nid});";
+        $link = '<div class="mmtree-browse-imagesingle ui-state-default ui-widget-content"><div class="mmtree-browse-caption">' . $item->title . '</div><div class="mmtree-browse-imagepreview" onclick="' . $onclick . '">' . $media . '</div></div>';
+      }
+      else {
+        $link = l($item->title, '#', array('attributes' => array('onclick' => "javascript:parent.Drupal.mm_browser_nodepicker_add({$mmtid}, '" . mm_ui_js_escape($item->title) . "', {$item->nid});"), 'external' => TRUE));
+      }
+      break;
+
+    case MM_BROWSER_MODE_GALLERY:
+      $link = "javascript:parent.Drupal.mm_browser_gallery_add($mmtid, '" . mm_ui_js_escape($item->uploadedfilename) . "', $item->nid);";
+      break;
+
+    case MM_BROWSER_MODE_MEDIA:
+      $link = "javascript:parent.Drupal.mm_browser_change_parent_url('" . url("media_assist/properties/$item->nid") . "');";
+      break;
+  }
+  return $link;
+}
+
+function _mm_browser_node_view($mode, $mmtid, $perms) {
+  // This retrieves the attributes of the content type
+  $node_fields = content_fields($_GET['browserContentType']);
+  if (!$perms[$node_fields['mm_list_selectable']]) {
+    if ($mmtid > 0) {
+      $out .= '<div id="mmtree-browse-thumbnails">' . t('<p>You do not have permission to use the content on this page.</p>');
+      $item_fields = content_fields($_GET['browserContentType']);
+      $options = array(
+        'w' => t('delete it or change its settings'),
+        'a' => t('append subpages to it'),
+        'u' => t('add content to it'),
+        'r' => t('read it'));
+      $out .= t('<p>To use content from this page, you must be able to @do.</p>', array('@do' => $options[$item_fields['mm_list_selectable']])) . '</div>';
+    }
+    $header = _mm_browser_header($mode, $mmtid);
+    print theme('mm_page_wrapper', t('Tree Browser'), $header . $out);
+    $GLOBALS['devel_shutdown'] = FALSE; // prevent the devel module from outputting
+    exit();
+  }
+  $allowed_node_types = array();
+  foreach ($node_fields['mm_list_nodetypes'] as $node_type) {
+    if ($node_type !== 0) {
+      $allowed_node_types[] = "'" . $node_type . "'";
+    }
+  }
+  $wheres = (count($allowed_node_types) != 0) ? "AND n.type IN (" . implode(', ', $allowed_node_types) . ") " : "";
+  $wheres .= "AND n.status = 1";
+  $query =
+    'SELECT n.nid, n.title, n.type, n.changed, t.name FROM {node} n ' .
+    'LEFT JOIN {node_type} t ON n.type = t.type ' .
+    'WHERE nid IN (' .
+    'SELECT m.nid FROM {mm_node2tree} m, {node} n ' .
+    "WHERE m.mmtid = '%s' AND m.nid = n.nid) " .
+    $wheres;
+  $limit = variable_get('mm_nodelist_pager_limit', 20);
+  $table_header = array(
+    array('data' => t('Type'), 'field' => 'n.type'),
+    array('data' => t('Title'), 'field' => 'n.title'),
+    array('data' => t('Last Modified'), 'field' => 'n.changed', 'sort' => 'desc'),
+  );
+  $tablesort = tablesort_sql($table_header);
+  $result = pager_query($query . $tablesort, $limit, 0, NULL, $mmtid);
+
+  $num_query =
+    'SELECT COUNT(*) FROM {node} n ' .
+    'LEFT JOIN {node_type} t ON n.type = t.type ' .
+    'WHERE nid IN (' .
+    'SELECT m.nid FROM {mm_node2tree} m, {node} n ' .
+    "WHERE m.mmtid = %d AND m.nid = n.nid) " .
+    $wheres;
+  $num_results = db_result(db_query($num_query, $mmtid));
+  if ($num_results == 0) {
+    $content = t('There is no selectable content on this page.');
+  }
+  else {
+    $rows = array();
+    while ($node = db_fetch_object($result)) {
+      $row = array();
+      if ($node->type == 'media') {
+        $fileinfo = db_query("SELECT DISTINCT uploadedfilename, filemime, filepath FROM {media_files} WHERE nid = %d", $node->nid);
+        $file = db_fetch_object($fileinfo);
+        $media = media_icon_display($node->nid, 'thumbnail', $file->filemime, $file->filepath, $file->uploadedfilename, $node->title, array('no_resize' => TRUE));
+        $node->uploadedfilename = $file->uploadedfilename;
+        $mime = $file->filemime;
+        $kind = media_get_media_type($mime);
+        $node->name = $node->name . ' - ' . $kind;
+        $node->title = empty($node->title) ? check_plain($node->uploadedfilename) : $node->title;
+      }
+      else {
+      }
+      $link = _mm_browser_get_link($mode, $node, $mmtid);
+      $row[] = check_plain($node->name);
+      $row[] = $link;
+      $row[] = format_date($node->changed, 'custom', 'M j, Y g:i A');
+      $rows[] = $row;
+    }
+    $content = theme('table', $table_header, $rows);
+    $content .= theme('pager', NULL, $limit, 0);
+    if (!$content) {
+      $content = t('<p>There are no nodes on this page.</p>');
+    }
+
+    // Select all link currently disabled. May be nice to enable at a later date,
+    //  but I couldn't think of a way for it to not be confusing. For example, if
+    //  the max allowed nodes set in the cck config mm_list node is 3, then we could theoretically
+    //  allow the user to "Select all" on a page with less than 3 nodes. However, the way it is
+    //  currently architected, there is no way to prevent the user from selecting a single
+    //  node for each of the first 3 picks, then a select all nodes on a page with 3 nodes,
+    //  thereby selecting 5 total nodes. Anyway, I couldn't think of a way to make this
+    //  not confusing for the user so I disabled it, but am leaving it here in case anyone
+    //  can think of a way to make it not confusing in the future.
+    // It also has the problem that a user could select a page which, at the time of selection
+    //  had less than 3 nodes, but was later populated to have > 3 thereby overloading.
+    //  Not any graceful way to prevent this, so it sits disabled. -VJQ 2/25/2011
+    // $links['all'] = "<a href=\"javascript:parent.Drupal.mm_browser_gallery_add($mmtid,'" . mm_ui_js_escape($name) . ' ' . t('(all)') . "');\" title=\"" . t('Select all current and future files on this page') . '">' . t('Select all') . '</a>';
+    jquery_ui_add('ui.core');
+  }
+}
+
+function _mm_browser_gallery_view($mode, $mmtid, $perms) {
+  $is_gallery = $mode == MM_BROWSER_MODE_GALLERY;
+  if (!$perms['u']) {
+    if ($mmtid > 0) {
+      $out .= '<div id="mmtree-browse-thumbnails">' . t('You do not have permission to use the file uploads on this page.') . '</div>';
+    }
+    $header = _mm_browser_header($mode, $mmtid);
+    print theme('mm_page_wrapper', t('Tree Browser'), $header . $out);
+    $GLOBALS['devel_shutdown'] = FALSE; // prevent the devel module from outputting
+    exit();
+  }
+
+  $and = $is_gallery ?
+    "f.filename = 'icon' AND f.filemime LIKE 'image/%'" :
+    "((f.filename = 'original' AND f.filemime NOT LIKE 'image/%') " .
+    "OR (f.filename = 'icon' AND f.filemime LIKE 'image/%') " .
+    "OR (f.filename = 'original' AND f.filemime LIKE 'image/%' AND f.nid NOT IN (" .
+    'SELECT nid FROM {media_files} fi ' .
+    "WHERE fi.nid = f.nid AND fi.filemime LIKE 'image/%' AND fi.filename = 'icon')))";
+  $query =
+    'SELECT f.*, nn.title AS title FROM {media_files} f, {node} nn ' .
+    'WHERE f.nid = nn.nid AND f.nid IN (' .
+    'SELECT m.nid FROM {mm_node2tree} m, {node} n ' .
+    "WHERE m.mmtid = %d AND m.nid = n.nid AND n.type='media'" .
+    ") AND $and ORDER BY f.mfid DESC";
+  $result = db_query($query, $mmtid);
+  $content = '';
+  while ($file = db_fetch_object($result)) {
+    $media = media_icon_display($file->nid, 'thumbnail', $file->filemime, $file->filepath, $file->uploadedfilename, $file->title, array());
+    $link = _mm_browser_get_link($mode, $file, $mmtid);
+    $title = empty($file->title) ? $file->uploadedfilename : $file->title;
+    $content .= '<div class="mmtree-browse-imagesingle ui-state-default ui-widget-content"><div class="mmtree-browse-caption">' . $title . '</div><div class="mmtree-browse-imagepreview" onclick="' . $link . '">' . $media . '</div></div>';
+  }
+
+  if (!$content) {
+    $content = t('<p>There are no file uploads on this page.</p>');
+  }
+  $content = '<div id="mmtree-browse-thumbnails">' . $content .'</div>';
+  jquery_ui_add('ui.core');
+
+  return $content;
+}
+
+function _mm_browser_default_view($mode, $mmtid, $perms, $item, $users) {
+  $content = '';
+  if (($mode == MM_BROWSER_MODE_PAGE || $mode == MM_BROWSER_MODE_RSS || $mode == MM_BROWSER_MODE_GROUP) && empty($item->is_virtual)) {
+    $content = '<table>';
+    if (empty($item->is_group)) {
+      $content .= '<tr><td align="right"><b>' . t('URL alias:') . '</b>&nbsp;</td><td>' . check_plain($item->alias) . '</td></tr>';
+    }
+    if (isset($item->nodecount)) {
+      $content .= '<tr><td align="right"><b>' . t('Items on page:') . '</b>&nbsp;</td><td>' . $item->nodecount . '</td></tr>';
+    }
+    $content .= '<tr><td align="right"><b>' . t('Owner:') . '</b>&nbsp;</td><td>' . mm_content_uid2name($item->uid) . '</td></tr>';
+    $can = array();
+    foreach (array(
+       'w' => _mm_browser_choice($item, t('delete/edit page'),
+                                 t('delete/edit user'), t('delete/edit group')),
+       'a' => _mm_browser_choice($item, t('add sub-pages'),
+                                 $item->name == MM_ENTRY_NAME_USERS ? t('add users') : t('add sub-pages'),
+                                 t('add sub-groups')),
+       'u' => !empty($item->is_group) ? t('apply this group'): t('assign content to page'),
+       'r' => !empty($item->is_group) ? t('see group\'s members') : t('read contents of page')) as $type => $desc) {
+
+      if ($perms[$type]) $can[] = $desc;
+    }
+    $content .= '<tr valign="top"><td align="right"><b>' . t('You can:') . '</b>&nbsp;</td><td>' . implode('<br />', $can) . '</td></tr>';
+    if ($users) {
+      $content .= '<tr valign="top"><td align="right"><b>' . t('Users in group:') . '</b>&nbsp;</td><td>' . $users . '</td></tr>';
+    }
+    $content .= '</table>';
+  }
+
+  return $content;
+}
+
+function _mm_browser_user_can($perms) {
+  $user_can = TRUE;
+  if (drupal_strlen($_GET['browserSelectable'])) {
+    $user_can = FALSE;
+    foreach (str_split($_GET['browserSelectable']) as $check) {
+      if ($perms[$check]) {
+        $user_can = TRUE;
+        break;
+      }
+    }
+  }
+  return $user_can;
 }
